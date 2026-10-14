@@ -1,11 +1,11 @@
 import Foundation
 import XCTest
-@testable import ImsgRelayCore
+@testable import BluehopCore
 
 // MARK: - 임시 폴더
 
 func makeTempDir() -> URL {
-    let u = FileManager.default.temporaryDirectory.appendingPathComponent("imsg-relay-test-\(UUID().uuidString)", isDirectory: true)
+    let u = FileManager.default.temporaryDirectory.appendingPathComponent("bluehop-test-\(UUID().uuidString)", isDirectory: true)
     try! FileManager.default.createDirectory(at: u, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
     return u
 }

@@ -27,4 +27,4 @@ body:
     id: env
     attributes:
       label: macOS and bluehop versions
-      placeholder: "macOS 26.0.1, imsg-relay 0.4.0"
+      placeholder: "macOS 26.0.1, bluehop 0.4.1"

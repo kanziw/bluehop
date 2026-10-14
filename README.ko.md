@@ -2,8 +2,6 @@
 
 **bluehop** 은 iMessage 대화 하나를 텔레그램 봇 대화로 전달하고, 텔레그램에서 쓴 답장을 같은 iMessage 대화로 보내는 **iMessage 텔레그램 중계기**입니다. "아이메시지를 텔레그램으로 받기", "iMessage 텔레그램 봇 전달"을 내 맥 한 대에서 직접(셀프 호스팅) 합니다. 서명된 Swift 바이너리 하나, 외부 라이브러리 0개, 웹 화면 없음, 열린 포트 없음, 클라우드 없음. 메시지 앱에 로그인된 내 맥에서 돕니다.
 
-> **이름 안내:** 프로젝트 이름은 bluehop 이지만, 바이너리와 설치 경로는 아직 `imsg-relay` 입니다(`~/Library/Application Support/imsg-relay/bin/imsg-relay`, LaunchAgent `dev.kanziw.imsg-relay`, Keychain 서비스 `dev.kanziw.imsg-relay`). 아래 명령은 이 실제 이름을 씁니다. macOS 는 전체 디스크 접근 권한을 바이너리 식별자에 묶어 두기 때문에, 이 이름을 바꾸면 설치한 맥마다 권한을 다시 줘야 합니다. 그래서 따로 나중에 바꿉니다.
-
 > Apple Inc. 및 Telegram 과 제휴·보증·후원 관계가 없습니다. iMessage 와 Messages 는 Apple Inc. 의 상표이고, Telegram 은 해당 소유자의 상표입니다.
 
 [English README](README.md) · [에이전트 가이드(설치·운영·확인·문제 해결, 영어)](docs/AGENT-GUIDE.md) · [보안](SECURITY.md) · [설계 SPEC](SPEC.md) · [llms.txt](llms.txt)
@@ -60,23 +58,23 @@ iMessage 로만 대화할 수 있는 상대가 있습니다. 예를 들어 iMess
 
 0. `git clone https://github.com/kanziw/bluehop && cd bluehop`
 1. 텔레그램 @BotFather → `/newbot` → 토큰 받기. 새 봇과 대화를 열고 아무 글이나 한 번 보냅니다.
-2. `bash scripts/install.sh --no-load` — 로컬 게이트, 빌드·서명, `~/Library/Application Support/imsg-relay/bin/imsg-relay` 배치, LaunchAgent plist 와 설정 틀 생성. 아무것도 켜지 않습니다.
+2. `bash scripts/install.sh --no-load` — 로컬 게이트, 빌드·서명, `~/Library/Application Support/bluehop/bin/bluehop` 배치, LaunchAgent plist 와 설정 틀 생성. 아무것도 켜지 않습니다.
 3. 봇 토큰을 Keychain 에(입력 창에 붙여넣기 — 셸 기록에 안 남음):
    ```bash
-   security add-generic-password -s dev.kanziw.imsg-relay -a telegram-bot-token \
-     -T "$HOME/Library/Application Support/imsg-relay/bin/imsg-relay" -w
+   security add-generic-password -s dev.kanziw.bluehop -a telegram-bot-token \
+     -T "$HOME/Library/Application Support/bluehop/bin/bluehop" -w
    ```
-4. 시스템 설정 → 개인정보 보호 및 보안 → 전체 디스크 접근 → `+` → ⌘⇧G → `~/Library/Application Support/imsg-relay/bin/imsg-relay`. 이 바이너리에만 주고 터미널에는 주지 않습니다.
+4. 시스템 설정 → 개인정보 보호 및 보안 → 전체 디스크 접근 → `+` → ⌘⇧G → `~/Library/Application Support/bluehop/bin/bluehop`. 이 바이너리에만 주고 터미널에는 주지 않습니다.
 5. `bash scripts/agent-run.sh telegram-ids` → `chatId`·`allowedUserId`(중계기를 켜기 **전에** 실행). `bash scripts/agent-run.sh list-chats` → 최근 1:1 대화의 `chatGuid`·`handle`.
-6. 그 값을 `~/Library/Application Support/imsg-relay/config.json` 에 넣습니다(0600 유지).
-7. `bash scripts/agent-run.sh doctor --messages --telegram`. "imsg-relay 가 메시지 앱을 제어하려 함" 창이 뜨면 **허용**. 모두 ✔ 면 `bash scripts/install.sh` 로 LaunchAgent 를 켭니다.
+6. 그 값을 `~/Library/Application Support/bluehop/config.json` 에 넣습니다(0600 유지).
+7. `bash scripts/agent-run.sh doctor --messages --telegram`. "bluehop 이 메시지 앱을 제어하려 함" 창이 뜨면 **허용**. 모두 ✔ 면 `bash scripts/install.sh` 로 LaunchAgent 를 켭니다.
 8. 텔레그램에서 `/status`.
 
 `scripts/agent-run.sh` 는 설치된 바이너리를 launchd 로 실행해 그 바이너리 자신의 권한으로 돌게 합니다. 터미널에 전체 디스크 접근을 줄 필요가 없습니다.
 
 ## 설정
 
-`~/Library/Application Support/imsg-relay/config.json`(0600, 폴더 0700. 더 넓으면 시작을 거부합니다). 키 설명은 [README.md 의 Configuration 표](README.md#configuration)와 [SPEC.md §5](SPEC.md) 에 있습니다.
+`~/Library/Application Support/bluehop/config.json`(0600, 폴더 0700. 더 넓으면 시작을 거부합니다). 키 설명은 [README.md 의 Configuration 표](README.md#configuration)와 [SPEC.md §5](SPEC.md) 에 있습니다.
 
 ```json
 {
@@ -119,9 +117,9 @@ iMessage 로만 대화할 수 있는 상대가 있습니다. 예를 들어 iMess
 |---|---|
 | 점검(보내지 않음) | `bash scripts/agent-run.sh doctor --messages --telegram` |
 | 상태 | 텔레그램에서 `/status` |
-| 다시 시작 | `launchctl kickstart -k "gui/$(id -u)/dev.kanziw.imsg-relay"` |
+| 다시 시작 | `launchctl kickstart -k "gui/$(id -u)/dev.kanziw.bluehop"` |
 | 업데이트 | `git pull && bash scripts/install.sh` |
-| 로그 | `~/Library/Logs/imsg-relay.log`(본문 없음) |
+| 로그 | `~/Library/Logs/bluehop.log`(본문 없음) |
 | 제거 | `bash scripts/uninstall.sh`(설정·상태 유지) / `--purge`(설정·상태·Keychain 항목까지 삭제) |
 
 ## 개발
@@ -129,7 +127,7 @@ iMessage 로만 대화할 수 있는 상대가 있습니다. 예를 들어 iMess
 ```bash
 bash scripts/setup-dev.sh      # 클론마다 한 번: .githooks/ 의 git 훅 켜기
 bash scripts/check.sh          # 금지 패턴 + swift build + swift test
-bash scripts/build-release.sh  # 서명된 dist/imsg-relay
+bash scripts/build-release.sh  # 서명된 dist/bluehop
 ```
 
 기여·코딩 에이전트 규칙: [AGENTS.md](AGENTS.md), [CONTRIBUTING.md](CONTRIBUTING.md).

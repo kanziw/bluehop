@@ -1,6 +1,6 @@
 # bluehop SPEC
 
-> 프로젝트 이름은 bluehop 이다. 바이너리·설치 경로·LaunchAgent 라벨·Keychain 서비스는 아직 `imsg-relay` / `dev.kanziw.imsg-relay` 이고, 이 문서의 명령과 경로는 그 실제 이름을 쓴다.
+> 프로젝트 이름은 bluehop 이다. 바이너리는 `bluehop`, 설치 경로는 `~/Library/Application Support/bluehop`, LaunchAgent 라벨·Keychain 서비스는 `dev.kanziw.bluehop` 이다.
 
 텔레그램 방 **하나** ↔ iMessage 1:1 대화 **하나**를 고정으로 잇는 작은 중계기.
 설계 결정: 범용 iMessage 브리지를 쓰는 대신 기능을 좁힌 중계기를 새로 만든다. 범용 브리지에서 흔한 위험(LAN 에 열린 웹 UI, 마지막 발신자 라우팅, 공용 인터프리터에 전체 디스크 권한, 고정되지 않은 의존성)을 설정이 아니라 **구조로** 없앤다(§4).
@@ -53,7 +53,7 @@
 7. 보낸 텔레그램 message_id 와 iMessage guid(+part) 를 매핑에 저장하고 커서를 그 ROWID 로 올린다(같은 트랜잭션).
 8. `is_from_me=1` 행: 먼저 outbox(중계기가 방금 보낸 것)와 맞춰 본다. 맞으면 매핑만 저장하고 텔레그램엔 다시 안 보낸다(메아리 방지 + 상대가 그 메시지에 답글/반응할 때 원래 텔레그램 메시지에 연결). 안 맞으면(사용자가 iPhone·Mac 에서 직접 보낸 것) `mirrorOwnMessages` 에 따라 `🙋 나: …` 로 미러한다. 사용자 본인의 반응은 봇 반응으로 달면 상대 반응처럼 보이므로 `🙋 나: ❤️ 반응` 답글 글로 보인다.
    - **본문 비교는 양쪽을 같은 키로 접은 뒤 한다**(`EchoKey.normalize`, outbox 에 넣을 때와 chat.db 행을 볼 때 둘 다). 메시지 앱은 보낸 글을 그대로 적지 않는다 — **한글을 NFD(자모 분해)로**, `text` 를 비우고 `attributedBody` 에만 적는다(실측 2026-10-14: 46 스칼라·102바이트 글이 83 스칼라·213바이트로 기록, 'Hi' 같은 ASCII 글만 맞고 한국어 글은 전부 틀림). 여러 줄 글의 줄바꿈도 U+2028/U+2029 로 적을 수 있다. 그래서 키는 ① U+FFFC 제거·줄바꿈 통일 ② NFC 합성 ③ 둥근 따옴표·대시·말줄임표를 곧은 꼴로(`“”`→`"`, `‘’`→`'`, `–—`→`-`, 연속 `-` 하나로, `…`→`...`) ④ 폭 없는 공백·BOM·제어문자 제거, NBSP 등 공백류를 공백 하나로, 줄 끝 공백 제거. 맞추지 못하면 사용자가 텔레그램으로 보낸 글이 "🙋 나: …"로 중복 게시되고, 상대 반응·답글이 그 메아리에 붙고, 60초 뒤 **실제로는 보낸** 글에 거짓 ⚠️ 가 달린다(사고 2026-10-14).
-   - **정확 일치만 쓴다 — "대기 발송 1건 + 시간 창 안의 내 행 1건이면 맞춤" 같은 보조 규칙은 두지 않는다.** 원인(NFD)이 키 규칙으로 닫혔고, 보조 규칙이 틀리면 사용자가 iPhone 에서 직접 보낸 글이 텔레그램에서 사라지고 실제로 안 간 발송이 확인된 것으로 처리된다(실패가 조용해진다). 대신 유예가 끝나도 못 맞춘 행은 미러하기 직전에 `메아리 불일치 rowid=… 후보 tg=… 받은 len=…/h=… 기다림 len=…/h=… 같은앞부분=N` 를 로그에 남긴다(본문 없음). 새 변형이 나오면 이 줄과 `imsg-relay diag-echo` 로 원인을 확정하고 키 규칙에 더한다.
+   - **정확 일치만 쓴다 — "대기 발송 1건 + 시간 창 안의 내 행 1건이면 맞춤" 같은 보조 규칙은 두지 않는다.** 원인(NFD)이 키 규칙으로 닫혔고, 보조 규칙이 틀리면 사용자가 iPhone 에서 직접 보낸 글이 텔레그램에서 사라지고 실제로 안 간 발송이 확인된 것으로 처리된다(실패가 조용해진다). 대신 유예가 끝나도 못 맞춘 행은 미러하기 직전에 `메아리 불일치 rowid=… 후보 tg=… 받은 len=…/h=… 기다림 len=…/h=… 같은앞부분=N` 를 로그에 남긴다(본문 없음). 새 변형이 나오면 이 줄과 `bluehop diag-echo` 로 원인을 확정하고 키 규칙에 더한다.
    - **메아리 맞춤에 유예(`echoGraceSeconds`, 기본 5초)를 둔다**: 확인 안 된 텔레그램 발송(outbox `sending`/`sent`)이 남아 있는 동안 본 `is_from_me` 행은, 본문 비교가 그 발송과 아직 못 맞춰진 것일 수 있으니 곧바로 "직접 보낸 글"로 단정하지 않고 잠깐(최대 `echoGraceSeconds`) 기다려 재시도 기회를 준다. 유예가 끝나도 못 맞추면(정말 다른 글이면) 그제서야 평소처럼 미러한다 — 안전망이 영원히 막지는 않는다.
 
 ### 2-2. 텔레그램 → iMessage
@@ -94,18 +94,18 @@
 
 그 밖:
 - 설정 파일·상태 DB·토큰 파일은 0600, 폴더는 0700. 권한이 더 넓으면 **시작을 거부**한다.
-- 봇 토큰은 Keychain(`security add-generic-password -s dev.kanziw.imsg-relay -a telegram-bot-token`) 또는 0600 파일. 로그·에러 메시지에 토큰을 찍지 않는다(URL 이 들어간 에러는 토큰을 가린다).
+- 봇 토큰은 Keychain(`security add-generic-password -s dev.kanziw.bluehop -a telegram-bot-token`) 또는 0600 파일. 로그·에러 메시지에 토큰을 찍지 않는다(URL 이 들어간 에러는 토큰을 가린다).
 - 로그에는 ROWID·message_id·개수·종류만 남기고 **본문·전화번호는 남기지 않는다.**
 - 첨부 읽기는 `~/Library/Messages/Attachments` 아래 실제 경로만 허용(심볼릭 링크로 빠져나가기 차단).
 - 텔레그램 봇 대화는 종단간 암호화가 아니다 — 중계된 문자는 텔레그램 서버에 남는다(받아들인 위험).
 
 ### 4-1. 속도 제한과 안전 정지
 - 토큰 버킷: 텔레그램으로 분당 20건, iMessage 로 분당 10건(넘으면 버리지 않고 기다림).
-- 안전 정지(서킷 브레이커): 최근 10분 동안 텔레그램으로 120건 또는 iMessage 로 40건을 넘기면, 또는 시작 시 밀린 iMessage 가 50건을 넘으면 **양방향을 멈추고** `halted` 를 저장한 뒤 텔레그램에 한 번 알린다. 재개는 사용자가 `/resume`(텔레그램) 또는 `imsg-relay resume [--skip-backlog]`.
+- 안전 정지(서킷 브레이커): 최근 10분 동안 텔레그램으로 120건 또는 iMessage 로 40건을 넘기면, 또는 시작 시 밀린 iMessage 가 50건을 넘으면 **양방향을 멈추고** `halted` 를 저장한 뒤 텔레그램에 한 번 알린다. 재개는 사용자가 `/resume`(텔레그램) 또는 `bluehop resume [--skip-backlog]`.
 - iMessage 로 보내는 글 최대 4000자, 첨부 최대 20MB(텔레그램 봇 내려받기 한도). 텔레그램으로 올리는 첨부 최대 50MB(넘으면 안내 글), 4000자 넘는 글은 나눠 보낸다.
 - 정지 중이거나 보낸 지 10분 넘은 텔레그램 글, 스티커는 보내지 않고 ⚠️ 로 알린다.
 
-## 5. 설정 (`~/Library/Application Support/imsg-relay/config.json`, 0600)
+## 5. 설정 (`~/Library/Application Support/bluehop/config.json`, 0600)
 
 ```json
 {
@@ -117,10 +117,10 @@
 }
 ```
 
-- `telegram.chatId`: 봇과의 1:1 방 id(0 이 아니어야 함). `telegram.allowedUserId`: 글을 받아 줄 텔레그램 사용자 id(양수). 둘 다 `imsg-relay telegram-ids` 가 알려 준다.
-- `telegram.tokenSource`: `"keychain"`(기본, 서비스 `dev.kanziw.imsg-relay` / 계정 `telegram-bot-token`) 또는 `"file"`. `"file"` 이면 `tokenFile` 경로가 필요하고(`~` 펼침), 그 파일은 현재 사용자 소유·0600 이어야 한다. 토큰 형식(`<숫자>:<영숫자_->`)이 아니면 거부한다.
+- `telegram.chatId`: 봇과의 1:1 방 id(0 이 아니어야 함). `telegram.allowedUserId`: 글을 받아 줄 텔레그램 사용자 id(양수). 둘 다 `bluehop telegram-ids` 가 알려 준다.
+- `telegram.tokenSource`: `"keychain"`(기본, 서비스 `dev.kanziw.bluehop` / 계정 `telegram-bot-token`) 또는 `"file"`. `"file"` 이면 `tokenFile` 경로가 필요하고(`~` 펼침), 그 파일은 현재 사용자 소유·0600 이어야 한다. 토큰 형식(`<숫자>:<영숫자_->`)이 아니면 거부한다.
 - `imessage.chatGuid`: `;-;` 가 든 1:1 형식만(단체방 `;+;` 거부). `imessage.handle`: 그 대화의 유일한 참가자(공백·`-`·괄호·대소문자 무시하고 비교).
-- `relay.mirrorOwnMessages`(기본 `true`), `relay.telegramReactionMode`(`"ignore"` 기본 / `"text"`), `relay.outboxDirectory`(기본 `~/Library/Caches/com.apple.MobileSMS/imsg-relay-outbox`, 메시지 앱 샌드박스가 읽을 수 있는 곳이어야 함 — `docs/imessage-limits.md` §2-1). `relay` 블록은 통째로 빠져도 된다.
+- `relay.mirrorOwnMessages`(기본 `true`), `relay.telegramReactionMode`(`"ignore"` 기본 / `"text"`), `relay.outboxDirectory`(기본 `~/Library/Caches/com.apple.MobileSMS/bluehop-outbox`, 메시지 앱 샌드박스가 읽을 수 있는 곳이어야 함 — `docs/imessage-limits.md` §2-1). `relay` 블록은 통째로 빠져도 된다.
 
 ## 6. 범위 밖
 iMessage 편집(`date_edited`)·보내기 취소 반영, 단체방, 여러 대화, 텔레그램 스티커 전달, 텔레그램 메시지 수정 반영, 텔레그램 반응 취소의 iMessage 반영.

@@ -19,8 +19,8 @@ body:
     id: version
     attributes:
       label: bluehop version
-      description: Output of `"$HOME/Library/Application Support/imsg-relay/bin/imsg-relay" version` (or the commit you built)
-      placeholder: "0.4.0"
+      description: Output of `"$HOME/Library/Application Support/bluehop/bin/bluehop" version` (or the commit you built)
+      placeholder: "0.4.1"
     validations:
       required: true
   - type: input
@@ -47,7 +47,7 @@ body:
     id: log
     attributes:
       label: Relevant log lines (redacted)
-      description: From `~/Library/Logs/imsg-relay.log`. The log contains no message text, but check for anything personal before pasting.
+      description: From `~/Library/Logs/bluehop.log`. The log contains no message text, but check for anything personal before pasting.
       render: text
   - type: checkboxes
     id: checks

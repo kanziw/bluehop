@@ -133,4 +133,4 @@ is_from_me|service |reply_to_guid 있음|delivered==read|건수
 ## 재현 방법(본문 없이 메타만)
 
 chat.db 는 읽기 전용으로 열고, `text`·`attributedBody`·`payload_data`·`message_summary_info` 등 본문 계열은 빼고 덤프했다.
-대응 근거는 상태 DB(`outbox.matched_guid`, `mapping`)와 `~/Library/Logs/imsg-relay.log` 의 `메아리 확인 rowid=` 줄이다.
+대응 근거는 상태 DB(`outbox.matched_guid`, `mapping`)와 `~/Library/Logs/bluehop.log` 의 `메아리 확인 rowid=` 줄이다.

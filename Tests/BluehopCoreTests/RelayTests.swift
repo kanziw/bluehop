@@ -1,6 +1,6 @@
 import Foundation
 import XCTest
-@testable import ImsgRelayCore
+@testable import BluehopCore
 
 /// iMessage → 텔레그램 (우선순위 1: 가장 충실하게)
 final class IMessageToTelegramTests: XCTestCase {
@@ -604,7 +604,7 @@ final class EchoMatchingAcrossLineBreaksTests: XCTestCase {
         try await h.relay.start()
         // 메시지 앱이 chat.db 에 줄바꿈을 U+2028 로 바꿔 적는 것을 흉내낸다.
         h.sender.echoTextTransform = { $0.replacingOccurrences(of: "\n", with: "\u{2028}") }
-        let text = "나 지금 kanziw/imsg-relay\n위에서 작업 중이야"
+        let text = "나 지금 kanziw/bluehop\n위에서 작업 중이야"
         MockTelegram.enqueue([Harness.textUpdate(1, messageID: 42, text: text)])
         await h.relay.tick()
 

@@ -2,8 +2,6 @@
 
 **bluehop** forwards one iMessage conversation to a Telegram bot chat and sends your Telegram replies back to that same iMessage conversation. It is a tiny, self-hosted **iMessage Telegram relay** for macOS: one signed Swift binary, zero third-party dependencies, no web UI, no open ports, no cloud service. It runs on your own Mac that is signed in to Messages.
 
-> **Name note:** the project is called bluehop, but the binary and its install paths are still named `imsg-relay` (`~/Library/Application Support/imsg-relay/bin/imsg-relay`, LaunchAgent `dev.kanziw.imsg-relay`, Keychain service `dev.kanziw.imsg-relay`). Commands below use those real names. Renaming them is a later, separate step because macOS ties Full Disk Access to the binary's identity, so every install would have to grant it again.
-
 > Not affiliated with, endorsed by, or sponsored by Apple Inc. or Telegram. iMessage and Messages are trademarks of Apple Inc. Telegram is a trademark of its respective owner.
 
 [한국어 README](README.ko.md) · [Agent guide: install, operate, verify, troubleshoot](docs/AGENT-GUIDE.md) · [Security](SECURITY.md) · [Design spec (Korean)](SPEC.md) · [llms.txt](llms.txt)
@@ -60,23 +58,23 @@ Step-by-step with a check after each step: **[docs/AGENT-GUIDE.md](docs/AGENT-GU
 
 0. `git clone https://github.com/kanziw/bluehop && cd bluehop`
 1. Create a bot with @BotFather (`/newbot`), open a chat with it, and send it any message.
-2. `bash scripts/install.sh --no-load`: runs the local gate, builds and signs the binary, installs it to `~/Library/Application Support/imsg-relay/bin/imsg-relay`, writes the LaunchAgent plist and a config template. Does not start anything.
+2. `bash scripts/install.sh --no-load`: runs the local gate, builds and signs the binary, installs it to `~/Library/Application Support/bluehop/bin/bluehop`, writes the LaunchAgent plist and a config template. Does not start anything.
 3. Store the bot token in the Keychain (you are prompted for it, so it stays out of shell history):
    ```bash
-   security add-generic-password -s dev.kanziw.imsg-relay -a telegram-bot-token \
-     -T "$HOME/Library/Application Support/imsg-relay/bin/imsg-relay" -w
+   security add-generic-password -s dev.kanziw.bluehop -a telegram-bot-token \
+     -T "$HOME/Library/Application Support/bluehop/bin/bluehop" -w
    ```
-4. System Settings → Privacy & Security → Full Disk Access → `+` → ⌘⇧G → `~/Library/Application Support/imsg-relay/bin/imsg-relay`. Grant it to that binary only, not to your terminal.
+4. System Settings → Privacy & Security → Full Disk Access → `+` → ⌘⇧G → `~/Library/Application Support/bluehop/bin/bluehop`. Grant it to that binary only, not to your terminal.
 5. `bash scripts/agent-run.sh telegram-ids` prints `chatId` and `allowedUserId` (run it before the relay is started). `bash scripts/agent-run.sh list-chats` prints `chatGuid` and `handle` for recent 1:1 chats.
-6. Put those values in `~/Library/Application Support/imsg-relay/config.json` (keep it mode 0600).
-7. `bash scripts/agent-run.sh doctor --messages --telegram`. Click **Allow** when macOS asks whether imsg-relay (the binary) may control Messages. When every line shows ✔, run `bash scripts/install.sh` to start the LaunchAgent.
+6. Put those values in `~/Library/Application Support/bluehop/config.json` (keep it mode 0600).
+7. `bash scripts/agent-run.sh doctor --messages --telegram`. Click **Allow** when macOS asks whether bluehop (the binary) may control Messages. When every line shows ✔, run `bash scripts/install.sh` to start the LaunchAgent.
 8. Send `/status` in the Telegram chat.
 
 `scripts/agent-run.sh` runs the installed binary through launchd, so it uses the binary's own permissions and your terminal never needs Full Disk Access.
 
 ## Configuration
 
-`~/Library/Application Support/imsg-relay/config.json` (mode 0600, folder 0700; the relay refuses to start if they are wider):
+`~/Library/Application Support/bluehop/config.json` (mode 0600, folder 0700; the relay refuses to start if they are wider):
 
 ```json
 {
@@ -92,13 +90,13 @@ Step-by-step with a check after each step: **[docs/AGENT-GUIDE.md](docs/AGENT-GU
 |---|---|
 | `telegram.chatId` | Your 1:1 chat with the bot. Must not be 0. |
 | `telegram.allowedUserId` | The only Telegram user whose messages are accepted. Must be positive. |
-| `telegram.tokenSource` | `"keychain"` (service `dev.kanziw.imsg-relay`, account `telegram-bot-token`) or `"file"`. |
+| `telegram.tokenSource` | `"keychain"` (service `dev.kanziw.bluehop`, account `telegram-bot-token`) or `"file"`. |
 | `telegram.tokenFile` | Required when `tokenSource` is `"file"`. `~` is expanded. The file must be owned by you and mode 0600. |
 | `imessage.chatGuid` | A 1:1 chat guid containing `;-;` (group guids `;+;` are rejected). Copy it from `list-chats`. |
 | `imessage.handle` | The chat's only participant (phone number or email). Checked against chat.db at startup. |
 | `relay.mirrorOwnMessages` | Mirror messages you send from other devices (default `true`). |
 | `relay.telegramReactionMode` | `"ignore"` (default): Telegram reactions are not sent. `"text"`: sent as a short text such as `❤ ↪ "start of message…"`. |
-| `relay.outboxDirectory` | Where Telegram attachments are staged before sending. Default `~/Library/Caches/com.apple.MobileSMS/imsg-relay-outbox`. It must be a folder the sandboxed Messages app can read; leave it `null` unless you know why. |
+| `relay.outboxDirectory` | Where Telegram attachments are staged before sending. Default `~/Library/Caches/com.apple.MobileSMS/bluehop-outbox`. It must be a folder the sandboxed Messages app can read; leave it `null` unless you know why. |
 
 The `relay` block may be omitted.
 
@@ -131,9 +129,9 @@ No listening sockets or web server. One outbound host, `https://api.telegram.org
 |---|---|
 | Health check (sends nothing) | `bash scripts/agent-run.sh doctor --messages --telegram` |
 | Status | `/status` in Telegram |
-| Restart | `launchctl kickstart -k "gui/$(id -u)/dev.kanziw.imsg-relay"` |
+| Restart | `launchctl kickstart -k "gui/$(id -u)/dev.kanziw.bluehop"` |
 | Update | `git pull && bash scripts/install.sh` |
-| Logs | `~/Library/Logs/imsg-relay.log` (no message text) |
+| Logs | `~/Library/Logs/bluehop.log` (no message text) |
 | Uninstall | `bash scripts/uninstall.sh` (keeps config and state) or `bash scripts/uninstall.sh --purge` (also removes config, state and the Keychain item) |
 
 ## Develop
@@ -141,10 +139,10 @@ No listening sockets or web server. One outbound host, `https://api.telegram.org
 ```bash
 bash scripts/setup-dev.sh      # once per clone: enable the git hooks in .githooks/
 bash scripts/check.sh          # forbidden-pattern scan + swift build + swift test
-bash scripts/build-release.sh  # signed dist/imsg-relay
+bash scripts/build-release.sh  # signed dist/bluehop
 ```
 
-Rules for contributors and coding agents: [AGENTS.md](AGENTS.md) and [CONTRIBUTING.md](CONTRIBUTING.md). Changes: [CHANGELOG.md](CHANGELOG.md). The identifier `dev.kanziw.imsg-relay` (Keychain service, LaunchAgent label, signing and bundle identifier) is shared by the code and all scripts; change all or none.
+Rules for contributors and coding agents: [AGENTS.md](AGENTS.md) and [CONTRIBUTING.md](CONTRIBUTING.md). Changes: [CHANGELOG.md](CHANGELOG.md). The identifier `dev.kanziw.bluehop` (Keychain service, LaunchAgent label, signing and bundle identifier) is shared by the code and all scripts; change all or none.
 
 ## License
 

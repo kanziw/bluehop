@@ -181,7 +181,7 @@ public final class TelegramClient {
     /// 첨부 업로드(multipart). caption 은 1024자까지만 쓴다.
     public func sendMedia(_ kind: TGMediaKind, fileURL: URL, filename: String, mimeType: String?,
                           caption: String? = nil, replyTo: Int64? = nil) async throws -> Int64 {
-        let boundary = "imsgrelay-\(UUID().uuidString)"
+        let boundary = "bluehop-\(UUID().uuidString)"
         var body = Data()
         func field(_ name: String, _ value: String) {
             body.append("--\(boundary)\r\nContent-Disposition: form-data; name=\"\(name)\"\r\n\r\n\(value)\r\n".data(using: .utf8)!)

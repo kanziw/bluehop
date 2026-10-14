@@ -1,6 +1,6 @@
 import Foundation
 import XCTest
-@testable import ImsgRelayCore
+@testable import BluehopCore
 
 /// 실제 chat.db 에서 확인한 행 모양(2026-10-14, macOS 26.0.1)을 fixture 로 고정한 테스트.
 /// 본문은 테스트용 문자열이고 GUID 는 가짜다. 각 테스트가 지키는 사실은 `docs/observed-facts.md` 표에 있다.

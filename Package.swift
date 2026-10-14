@@ -3,23 +3,23 @@
 import PackageDescription
 
 let package = Package(
-    name: "imsg-relay",
+    name: "bluehop",
     platforms: [.macOS(.v14)],
     products: [
-        .executable(name: "imsg-relay", targets: ["ImsgRelayCLI"]),
+        .executable(name: "bluehop", targets: ["BluehopCLI"]),
     ],
     targets: [
         .target(
-            name: "ImsgRelayCore",
+            name: "BluehopCore",
             linkerSettings: [.linkedLibrary("sqlite3")]
         ),
         .executableTarget(
-            name: "ImsgRelayCLI",
-            dependencies: ["ImsgRelayCore"]
+            name: "BluehopCLI",
+            dependencies: ["BluehopCore"]
         ),
         .testTarget(
-            name: "ImsgRelayCoreTests",
-            dependencies: ["ImsgRelayCore"]
+            name: "BluehopCoreTests",
+            dependencies: ["BluehopCore"]
         ),
     ]
 )

@@ -4,7 +4,7 @@
 
 Please do not open a public issue for security problems. Report privately through GitHub's private vulnerability reporting: open the [Security tab](https://github.com/kanziw/bluehop/security) and choose **Report a vulnerability** (direct link: <https://github.com/kanziw/bluehop/security/advisories/new>). This is the only security contact channel.
 
-Include the relay version (`imsg-relay version`; the binary keeps its old name for now), macOS version, and steps to reproduce. Remove bot tokens, phone numbers, email handles, chat guids and Telegram ids from anything you send. bluehop is maintained by one person in their spare time, so there is no guaranteed response time; reports are read and answered on a best-effort basis. The aim for a confirmed issue is a fix and a published advisory before details are discussed publicly.
+Include the relay version (`bluehop version`), macOS version, and steps to reproduce. Remove bot tokens, phone numbers, email handles, chat guids and Telegram ids from anything you send. bluehop is maintained by one person in their spare time, so there is no guaranteed response time; reports are read and answered on a best-effort basis. The aim for a confirmed issue is a fix and a published advisory before details are discussed publicly.
 
 Supported versions: only the latest release on `main` receives fixes.
 
@@ -21,7 +21,7 @@ bluehop needs Full Disk Access to read the Messages database, and it can send iM
 | Shared interpreter with disk access | Only the single signed binary gets Full Disk Access. No Python, shell or plugins. `scripts/agent-run.sh` runs it through launchd, so your terminal never needs that permission. |
 | Dependency supply chain | Zero third-party packages (Foundation, SQLite3, Security, AudioToolbox only). `check.sh` fails if `.package(` or `Package.resolved` appears. |
 | Script injection through osascript | `osascript` is started without a shell, with one fixed script; message text, file path and chat guid are passed as argv only. |
-| Writing to Messages data | chat.db is opened `SQLITE_OPEN_READONLY` with `PRAGMA query_only`. Nothing is written under `~/Library/Messages`. Outgoing attachments are staged in `~/Library/Caches/com.apple.MobileSMS/imsg-relay-outbox` (0700). |
+| Writing to Messages data | chat.db is opened `SQLITE_OPEN_READONLY` with `PRAGMA query_only`. Nothing is written under `~/Library/Messages`. Outgoing attachments are staged in `~/Library/Caches/com.apple.MobileSMS/bluehop-outbox` (0700). |
 | Secret leakage | Bot token in the Keychain (or a file that must be 0600 and owned by you). Config, state database and their folder must be 0600/0700 and owned by you, or startup is refused. Network errors never include the request URL (which contains the token). Logs contain row ids, counts and kinds, never message text, phone numbers or the token. |
 | Runaway sending | Rate limits (20/min to Telegram, 10/min to iMessage) and a circuit breaker that halts both directions above 120/40 messages in 10 minutes or a startup backlog above 50. |
 | Late or replayed commands | Each Telegram message is sent at most once (recorded before sending). Messages older than 10 minutes when processed are not sent. Messages from before the first start are skipped. |
@@ -38,4 +38,4 @@ bluehop needs Full Disk Access to read the Messages database, and it can send iM
 - Keep the bot token private. If it leaks, revoke it in @BotFather (`/revoke`) and replace the Keychain item.
 - Keep Full Disk Access limited to the relay binary.
 - Use a stable signing identity so you are not trained to click through permission prompts.
-- Check `~/Library/Logs/imsg-relay.log` if behavior looks wrong; it contains no message text.
+- Check `~/Library/Logs/bluehop.log` if behavior looks wrong; it contains no message text.

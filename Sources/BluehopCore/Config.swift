@@ -47,16 +47,16 @@ public enum ConfigError: Error, CustomStringConvertible {
 
 public enum Paths {
     public static var home: String { NSHomeDirectory() }
-    public static var supportDir: String { home + "/Library/Application Support/imsg-relay" }
+    public static var supportDir: String { home + "/Library/Application Support/bluehop" }
     public static var configFile: String { supportDir + "/config.json" }
     public static var stateFile: String { supportDir + "/state.sqlite" }
     public static var tmpDir: String { supportDir + "/tmp" }
     /// 텔레그램에서 받은 첨부를 보내기 전에 두는 곳. 메시지 앱(샌드박스)이 읽을 수 있는 폴더여야 한다 —
     /// `MessagesSandbox` 참고. `~/Library/Messages` 에는 쓰지 않으므로 그 옆의 메시지 앱 캐시 폴더를 쓴다.
-    public static var defaultOutboxDir: String { home + "/Library/Caches/com.apple.MobileSMS/imsg-relay-outbox" }
+    public static var defaultOutboxDir: String { home + "/Library/Caches/com.apple.MobileSMS/bluehop-outbox" }
     public static var chatDB: String { home + "/Library/Messages/chat.db" }
     public static var attachmentsRoot: String { home + "/Library/Messages/Attachments" }
-    public static let keychainService = "dev.kanziw.imsg-relay"
+    public static let keychainService = "dev.kanziw.bluehop"
     public static let keychainAccount = "telegram-bot-token"
 }
 

@@ -3,7 +3,7 @@
 <plist version="1.0">
 <dict>
     <key>Label</key>
-    <string>dev.kanziw.imsg-relay</string>
+    <string>dev.kanziw.bluehop</string>
     <key>ProgramArguments</key>
     <array>
         <string>__BIN__</string>

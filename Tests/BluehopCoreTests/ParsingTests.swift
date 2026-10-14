@@ -1,6 +1,6 @@
 import Foundation
 import XCTest
-@testable import ImsgRelayCore
+@testable import BluehopCore
 
 final class AttributedBodyTests: XCTestCase {
     func testShortText() {

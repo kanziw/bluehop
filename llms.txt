@@ -12,8 +12,8 @@ Start with the agent guide: every install step has a verification command and th
 - [Design spec, Korean](SPEC.md): data flow, state, limits
 - [iMessage limits, Korean](docs/imessage-limits.md): why replies and reactions cannot be sent to iMessage without disabling SIP
 
-## Hard facts (as of 2026-10-15, version 0.4.0)
-- Name: the project is bluehop; the binary, install paths (`~/Library/Application Support/imsg-relay/`), LaunchAgent label and Keychain service (`dev.kanziw.imsg-relay`) still use the old name `imsg-relay`. Use those exact names in commands.
+## Hard facts (as of 2026-10-15, version 0.4.1)
+- Name: the project and binary are bluehop; install paths are under `~/Library/Application Support/bluehop/`, and the LaunchAgent label and Keychain service are `dev.kanziw.bluehop`.
 - Platform: macOS 14+ target, built and run on macOS 26.0.1 with Xcode 26.2. Building needs full Xcode. No Linux, Windows or iOS.
 - Scope: exactly one iMessage 1:1 chat and one Telegram chat. No group chats, no multiple chats.
 - Telegram → iMessage: text up to 4000 characters, files up to 20 MB. Replies become a quoted prefix; reactions are ignored by default.

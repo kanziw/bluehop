@@ -132,7 +132,7 @@ public final class Relay {
         guard state.haltReason == nil else { return }
         try? state.setHalted(reason)
         log("안전 정지: \(reason)")
-        _ = try? await telegram.sendMessage("⏸ imsg-relay 안전 정지\n\(reason)\n재개: /resume")
+        _ = try? await telegram.sendMessage("⏸ bluehop 안전 정지\n\(reason)\n재개: /resume")
     }
 
     /// 정지를 푼다. skipBacklog 면 iMessage 커서를 현재 끝으로 옮긴다.

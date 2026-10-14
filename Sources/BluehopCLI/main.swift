@@ -1,7 +1,7 @@
 import Foundation
-import ImsgRelayCore
+import BluehopCore
 
-let version = "0.4.0"
+let version = "0.4.1"
 
 func log(_ s: String) {
     let f = ISO8601DateFormatter()
@@ -15,26 +15,26 @@ func fail(_ s: String) -> Never {
 
 func usage() -> Never {
     print("""
-    imsg-relay \(version) — 텔레그램 방 하나 ↔ iMessage 1:1 대화 하나 중계
+    bluehop \(version) — 텔레그램 방 하나 ↔ iMessage 1:1 대화 하나 중계
 
     사용법:
-      imsg-relay run                      중계 실행 (LaunchAgent 가 부른다)
-      imsg-relay doctor [--messages] [--telegram]
+      bluehop run                         중계 실행 (LaunchAgent 가 부른다)
+      bluehop doctor [--messages] [--telegram]
                                           설정·권한·대화 점검 (보내지 않음)
                                           --messages: 메시지 앱에 대화가 있는지 확인(자동 제어 권한 필요)
                                           --telegram: 봇 토큰으로 getMe 호출
-      imsg-relay telegram-ids [--token-file 경로]
+      bluehop telegram-ids [--token-file 경로]
                                           봇에게 보낸 최근 메시지의 chat id·user id (본문 없음)
-      imsg-relay list-chats               묶을 수 있는 1:1 대화 목록(guid, 상대 handle)
-      imsg-relay resume [--skip-backlog]  안전 정지 해제
-      imsg-relay selfcheck-attributed     설정한 대화에서 본문 추출 일치율(숫자만)
-      imsg-relay diag-echo --after ROWID [--expect-file 경로]
+      bluehop list-chats                  묶을 수 있는 1:1 대화 목록(guid, 상대 handle)
+      bluehop resume [--skip-backlog]     안전 정지 해제
+      bluehop selfcheck-attributed        설정한 대화에서 본문 추출 일치율(숫자만)
+      bluehop diag-echo --after ROWID [--expect-file 경로]
                                           내 메시지 행의 본문 모양(길이·정규화·다른 코드포인트)만 출력
-      imsg-relay diag-send-file --file 경로 [--caption 글] [--wait 초]
+      bluehop diag-send-file --file 경로 [--caption 글] [--wait 초]
                                           실제 전송 경로(보낼 첨부 폴더 → 메시지 앱)로 설정한 대화에만 파일(+글)을 보내고
                                           chat.db 의 전송 상태(error·transfer_state·파일 위치)만 출력. ⚠️ 실제로 보낸다
-      imsg-relay diag-audio              설정한 대화의 오디오 첨부 행 메타(음성 메시지 플래그·mime·uti·코덱)만 출력
-      imsg-relay version
+      bluehop diag-audio                  설정한 대화의 오디오 첨부 행 메타(음성 메시지 플래그·mime·uti·코덱)만 출력
+      bluehop version
     """)
     exit(2)
 }

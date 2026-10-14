@@ -1,6 +1,6 @@
 import Foundation
 
-/// `imsg-relay diag-echo` 의 출력 생성. 본문은 내지 않고 길이·정규화 형식·코드포인트 차이만 낸다.
+/// `bluehop diag-echo` 의 출력 생성. 본문은 내지 않고 길이·정규화 형식·코드포인트 차이만 낸다.
 public enum EchoDiagnostics {
     public static func report(rows: [ChatDB.RawOwnRow], expected: String?) -> [String] {
         var out: [String] = []

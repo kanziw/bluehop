@@ -1,6 +1,6 @@
 # bluehop: rules for agents and contributors
 
-bluehop is a single Swift binary (still named `imsg-relay`, see Identifiers) that links one Telegram chat to one iMessage 1:1 chat. Sources of truth: requirements, data flow and security in `SPEC.md`; iMessage-side limits in `docs/imessage-limits.md`; observed chat.db row shapes and the tests that pin them in `docs/observed-facts.md`. Setup and operation for agents: `docs/AGENT-GUIDE.md`.
+bluehop is a single Swift binary (`bluehop`, see Identifiers) that links one Telegram chat to one iMessage 1:1 chat. Sources of truth: requirements, data flow and security in `SPEC.md`; iMessage-side limits in `docs/imessage-limits.md`; observed chat.db row shapes and the tests that pin them in `docs/observed-facts.md`. Setup and operation for agents: `docs/AGENT-GUIDE.md`.
 
 ## Hard rules
 - **Zero external packages.** Do not add `dependencies:` / `.package(` to `Package.swift`. If you think one is needed, stop and report to the operator instead (security review comes first).
@@ -23,22 +23,22 @@ Never bypass the hooks with `--no-verify`. If a hook is wrong, fix the hook in i
 bash scripts/check.sh           # forbidden-pattern scan + swift build + swift test. Must pass before every commit
 swift build                     # debug build
 swift test                      # unit tests (XCTest, needs Xcode)
-bash scripts/build-release.sh   # signed release binary -> dist/imsg-relay
+bash scripts/build-release.sh   # signed release binary -> dist/bluehop
 ```
 `scripts/check.sh` fails on: an external package or `Package.resolved`; opening a DB read-write outside `StateStore`/`SQLite`; `ChatDB` not opening read-only; listening-socket APIs (`NWListener`, `bind(`, `listen(`, `HTTPServer`, `NSNetService`, `CFSocketCreate`); any hard-coded URL other than `https://api.telegram.org`; `osascript` outside `Platform.swift`.
 
 ## Install (on the operator's Mac, run by a person)
-`bash scripts/install.sh`: runs the gate, builds and signs a release, places it at `~/Library/Application Support/imsg-relay/bin/imsg-relay`, and registers the LaunchAgent `dev.kanziw.imsg-relay`. Step-by-step with checks: `docs/AGENT-GUIDE.md`.
+`bash scripts/install.sh`: runs the gate, builds and signs a release, places it at `~/Library/Application Support/bluehop/bin/bluehop`, and registers the LaunchAgent `dev.kanziw.bluehop`. Step-by-step with checks: `docs/AGENT-GUIDE.md`.
 Agents do not grant macOS permissions, do not enter or read the bot token, and do not send real messages. Diagnostic commands that send (`diag-send-file`) need the operator's explicit go-ahead.
 
 ## Layout
-- `Sources/ImsgRelayCore/`: logic (under test). `Relay.swift` is the two-way engine.
-- `Sources/ImsgRelayCLI/main.swift`: `run`, `doctor`, `telegram-ids`, `list-chats`, `resume`, `selfcheck-attributed`, `diag-echo`, `diag-send-file`, `diag-audio`, `version`.
-- `Tests/ImsgRelayCoreTests/`: fixture chat.db, mock Telegram (URLProtocol), fake Messages sender.
+- `Sources/BluehopCore/`: logic (under test). `Relay.swift` is the two-way engine.
+- `Sources/BluehopCLI/main.swift`: `run`, `doctor`, `telegram-ids`, `list-chats`, `resume`, `selfcheck-attributed`, `diag-echo`, `diag-send-file`, `diag-audio`, `version`.
+- `Tests/BluehopCoreTests/`: fixture chat.db, mock Telegram (URLProtocol), fake Messages sender.
 
 ## Identifiers
-`dev.kanziw.imsg-relay` is the Keychain service, LaunchAgent label, code-signing identifier and bundle identifier. Scripts and code use it together; do not change one without changing all of them (and do not rename it without the owner's decision).
-The project name is bluehop, but the binary, the Swift targets (`ImsgRelayCore`, `ImsgRelayCLI`), the install paths under `~/Library/Application Support/imsg-relay` and the log file keep the `imsg-relay` name for now. Renaming them to bluehop identifiers is a separate migration that makes macOS ask for Full Disk Access and Automation again (see `docs/PROPOSALS.md` §2-6). Use the project name in prose and the real identifiers in commands.
+`dev.kanziw.bluehop` is the Keychain service, LaunchAgent label, code-signing identifier and bundle identifier. Scripts and code use it together; do not change one without changing all of them (and do not rename it without the owner's decision).
+The binary is `bluehop`, the Swift targets are `BluehopCore` and `BluehopCLI`, install paths are under `~/Library/Application Support/bluehop`, and the log is `~/Library/Logs/bluehop.log`. Changing any of these identifiers makes macOS treat the binary as a new app, so every install has to grant Full Disk Access and Automation again and move its Keychain item, config and state.
 
 ## Commits
 - [Conventional Commits](https://www.conventionalcommits.org/): `<type>(<optional scope>): <summary>`.
@@ -56,13 +56,13 @@ The project name is bluehop, but the binary, the Swift targets (`ImsgRelayCore`,
 ## Changelog and versions
 - `CHANGELOG.md` follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Add user-visible changes under `## [Unreleased]` in the same PR.
 - Versions follow [SemVer](https://semver.org/); before 1.0.0, a minor bump may break things.
-- The version lives in two places that must match: `let version` in `Sources/ImsgRelayCLI/main.swift` and `CFBundleShortVersionString` in `packaging/Info.plist`.
+- The version lives in two places that must match: `let version` in `Sources/BluehopCLI/main.swift` and `CFBundleShortVersionString` in `packaging/Info.plist`.
 
 ## Release flow (maintainers)
 1. Move the `Unreleased` entries to `## [X.Y.Z] - YYYY-MM-DD` and update the compare links.
 2. Bump the version in `main.swift` and `Info.plist`; run `bash scripts/check.sh`.
 3. Commit `chore(release): vX.Y.Z`, tag `vX.Y.Z` (annotated), push the commit and the tag.
-4. Build with `bash scripts/build-release.sh` and attach `dist/imsg-relay` plus its SHA-256 to the GitHub release (signed and notarized release builds are a proposal, see `docs/PROPOSALS.md`).
+4. Build with `bash scripts/build-release.sh` and attach `dist/bluehop` plus its SHA-256 to the GitHub release (signed and notarized release builds are a proposal, see `docs/PROPOSALS.md`).
 
 ## Maintainer note
 The public repository is [`kanziw/bluehop`](https://github.com/kanziw/bluehop). The maintainer develops in a separate private repository, where the maintainer and agents working for the maintainer commit directly to `main`, and exports cleaned releases to the public repository (`docs/PROPOSALS.md` §3). That is not a rule for public contributors, who use pull requests as above. Agents must not change any repository's visibility, settings or published metadata without the maintainer's explicit decision.

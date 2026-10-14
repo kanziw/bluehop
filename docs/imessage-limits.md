@@ -41,7 +41,7 @@ iMessage 의 진짜 답글(스레드)을 만드는 길은 비공개 프레임워
 ## 2-1. 첨부 보내기는 메시지 앱이 읽을 수 있는 폴더에서만 된다 (확인 2026-10-14)
 - 메시지 앱은 샌드박스 앱이라 entitlement 로 허용된 폴더의 파일만 읽는다. 그 밖(예: `~/Library/Application Support/…`, `/tmp`, `~/Pictures`)의 파일을 `send POSIX file` 로 넘기면 osascript 는 성공하지만 chat.db 에 `message.error=25`, `attachment.transfer_state=6` 이 남고 `attachment.filename` 은 넘긴 경로 그대로다. 캡션 글만 상대에게 간다.
 - 허용 폴더(home 기준 read-write)는 `codesign -d --entitlements - /System/Applications/Messages.app` 의 `com.apple.security.temporary-exception.files.home-relative-path.read-write` 에 있다: `~/Library/Messages/`, `~/Media/`, `~/Library/SMS/`, `~/Library/Caches/com.apple.MobileSMS/` 등(macOS 26.0.1 에서 확인). `~/Pictures` 는 없다.
-- 그래서 기본 첨부 폴더는 `~/Library/Caches/com.apple.MobileSMS/imsg-relay-outbox`(0700)다. `~/Library/Messages` 에는 쓰지 않는다는 규칙을 지키면서 허용 폴더에 든다. 다른 곳을 `outboxDirectory` 로 지정하면 시작 로그에 경고가 남고, 첨부가 든 텔레그램 글은 보내지 않고 ⚠️ 로 알린다.
+- 그래서 기본 첨부 폴더는 `~/Library/Caches/com.apple.MobileSMS/bluehop-outbox`(0700)다. `~/Library/Messages` 에는 쓰지 않는다는 규칙을 지키면서 허용 폴더에 든다. 다른 곳을 `outboxDirectory` 로 지정하면 시작 로그에 경고가 남고, 첨부가 든 텔레그램 글은 보내지 않고 ⚠️ 로 알린다.
 - 성공하면 메시지 앱이 파일을 `~/Library/Messages/Attachments/…` 로 복사하고 `transfer_state=5`, `error=0` 이 된다(실측). 보낸 사본은 결과가 확정(confirmed/failed)된 뒤 1시간 지나 지운다.
 - 음성(텔레그램 ogg → m4a)·문서·영상도 같은 폴더를 거치므로 같은 규칙을 따른다.
 - 진단: `bash scripts/agent-run.sh diag-send-file --file 경로 --caption 글` — 같은 폴더·같은 발신기로 설정한 대화에만 보내고 상태만 출력한다(실제로 보낸다).
