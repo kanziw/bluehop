@@ -3,15 +3,15 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>bluehop: iMessage to Telegram relay for one chat</title>
-<meta name="description" content="bluehop forwards one iMessage conversation to a Telegram bot and sends your Telegram replies back. A tiny self-hosted macOS relay: Swift, zero dependencies, no web UI, no open ports, no cloud, SIP stays enabled.">
+<title>bluehop: iMessage to Telegram relay, one bot per chat</title>
+<meta name="description" content="bluehop forwards iMessage conversations to Telegram bots, one bot per chat, and sends your Telegram replies back. A tiny self-hosted macOS relay: Swift, zero dependencies, no web UI, no open ports, no cloud, SIP stays enabled.">
 <meta name="color-scheme" content="light dark">
 <meta name="theme-color" content="#f6f4ee" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#0d1424" media="(prefers-color-scheme: dark)">
 <link rel="canonical" href="https://kanziw.dev/bluehop/">
 <meta property="og:type" content="website">
-<meta property="og:title" content="bluehop: iMessage to Telegram relay for one chat">
-<meta property="og:description" content="Forward one iMessage conversation to a Telegram bot and reply from Telegram. Self-hosted on your Mac.">
+<meta property="og:title" content="bluehop: iMessage to Telegram relay, one bot per chat">
+<meta property="og:description" content="Forward the iMessage conversations you choose to Telegram, one bot per chat, and reply from Telegram. Self-hosted on your Mac.">
 <meta property="og:url" content="https://kanziw.dev/bluehop/">
 <meta property="og:image" content="https://kanziw.dev/bluehop/social-preview.png">
 <meta name="twitter:card" content="summary_large_image">
@@ -23,15 +23,17 @@
     {"@type": "SoftwareApplication", "name": "bluehop", "operatingSystem": "macOS 14 or newer",
      "applicationCategory": "UtilitiesApplication", "license": "https://opensource.org/licenses/MIT",
      "url": "https://kanziw.dev/bluehop/", "codeRepository": "https://github.com/kanziw/bluehop",
-     "description": "iMessage to Telegram relay for one chat. Self-hosted on a Mac signed in to Messages.",
+     "description": "iMessage to Telegram relay, one Telegram bot per linked chat. Self-hosted on a Mac signed in to Messages.",
      "offers": {"@type": "Offer", "price": "0", "priceCurrency": "USD"}},
     {"@type": "FAQPage", "mainEntity": [
       {"@type": "Question", "name": "Can I get iMessages in Telegram?",
-       "acceptedAnswer": {"@type": "Answer", "text": "Yes, for one conversation. bluehop runs on a Mac signed in to Messages, reads new messages of one 1:1 chat from the Messages database (read-only), and forwards them to your Telegram bot chat. Replies you write in Telegram are sent back to that same chat."}},
+       "acceptedAnswer": {"@type": "Answer", "text": "Yes, for the 1:1 conversations you choose. bluehop runs on a Mac signed in to Messages, reads new messages of each linked chat from the Messages database (read-only), and forwards them to that chat's Telegram bot. Replies you write in Telegram are sent back to the same chat."}},
       {"@type": "Question", "name": "Do I need to disable SIP?",
        "acceptedAnswer": {"@type": "Answer", "text": "No. bluehop uses only public mechanisms: read-only access to chat.db and AppleScript to send. The trade-off is that replies and reactions you make in Telegram cannot become real iMessage threaded replies or tapbacks; replies are sent with a quoted prefix and reactions are ignored by default."}},
-      {"@type": "Question", "name": "Does it work with group chats or several chats?",
-       "acceptedAnswer": {"@type": "Answer", "text": "No. It links exactly one iMessage 1:1 chat to one Telegram chat, and refuses to start if the configured chat is a group."}},
+      {"@type": "Question", "name": "Can I relay several chats?",
+       "acceptedAnswer": {"@type": "Answer", "text": "Yes, since version 0.5.0. Each linked iMessage 1:1 chat gets its own Telegram bot (create one per chat with @BotFather), and one bluehop process relays them all. Add one with bluehop mapping add: it asks for the bot token, lets you pick the chat with the arrow keys and detects your Telegram ids. Chats are isolated: a revoked token or a safety halt in one does not stop the others. One chat or one bot cannot be linked twice."}},
+      {"@type": "Question", "name": "Does it work with group chats?",
+       "acceptedAnswer": {"@type": "Answer", "text": "No. Only 1:1 chats can be linked; a group chat is refused."}},
       {"@type": "Question", "name": "Does it open a port or use a cloud service?",
        "acceptedAnswer": {"@type": "Answer", "text": "No. It makes outbound HTTPS requests to api.telegram.org only and has no web UI or listening socket. Telegram bot chats are not end-to-end encrypted, so relayed messages are stored on Telegram's servers."}},
       {"@type": "Question", "name": "Do I need a Mac?",
@@ -184,8 +186,8 @@ footer p { margin: 6px 0; }
 <div class="hero">
   <div>
     <p class="eyebrow">Self-hosted relay for macOS</p>
-    <h1><em>iMessage</em> to Telegram, for the one chat that matters.</h1>
-    <p class="lead">bluehop forwards one iMessage conversation to a Telegram bot chat and sends your Telegram replies back to it. A tiny self-hosted relay for your Mac: one signed Swift binary, zero dependencies, no web UI, no open ports, no cloud, and System Integrity Protection stays on.</p>
+    <h1><em>iMessage</em> to Telegram, one bot for each chat that matters.</h1>
+    <p class="lead">bluehop forwards the iMessage conversations you choose to Telegram, each to its own bot chat, and sends your Telegram replies back. A tiny self-hosted relay for your Mac: one signed Swift binary, zero dependencies, no web UI, no open ports, no cloud, and System Integrity Protection stays on.</p>
     <div class="cta">
       <a class="btn primary" href="https://github.com/kanziw/bluehop#install">Install guide</a>
       <a class="btn ghost" href="https://github.com/kanziw/bluehop">View source</a>
@@ -207,16 +209,17 @@ footer p { margin: 6px 0; }
 
 <section id="why">
   <h2>Why</h2>
-  <p class="sub">Some conversations only exist in iMessage: an AI assistant you can reach only over iMessage, or one family member. If the rest of your day, and your other agents, live in Telegram, bluehop lets you read and answer that one conversation there. iMessage needs a Mac signed in to Messages, so the relay runs on your Mac, not on someone's server.</p>
+  <p class="sub">Some conversations only exist in iMessage: an AI assistant you can reach only over iMessage, or one family member. If the rest of your day, and your other agents, live in Telegram, bluehop lets you read and answer those conversations there. iMessage needs a Mac signed in to Messages, so the relay runs on your Mac, not on someone's server.</p>
   <div class="grid2">
     <div class="card yes"><h3>What it does</h3><ul>
       <li>iMessage → Telegram: text, replies, tapbacks as reactions, photos, voice, video, files.</li>
       <li>Telegram → iMessage: text, photos, voice, video, files up to 20 MB.</li>
       <li>Confirms each send in the Messages database; only failures get a ⚠️.</li>
       <li>Mirrors what you send from your iPhone so the thread stays complete.</li>
+      <li>Several chats side by side, one Telegram bot each, isolated from each other.</li>
     </ul></div>
     <div class="card no"><h3>What it does not do</h3><ul>
-      <li>Group chats or more than one conversation.</li>
+      <li>Group chats, or every chat through a single bot.</li>
       <li>A web UI, an open port, or a hosted service.</li>
       <li>Ask you to disable SIP or use private Apple APIs.</li>
       <li>Real threaded replies or tapbacks <em>into</em> iMessage (sent as quoted text).</li>
@@ -229,13 +232,13 @@ footer p { margin: 6px 0; }
   <p class="sub">Everything happens on your Mac. The only host it talks to is <code>api.telegram.org</code>.</p>
   <ol class="steps">
     <li><h3>One signed binary</h3><p>A LaunchAgent runs it. Only that binary gets Full Disk Access and Automation permission; your terminal never does.</p></li>
-    <li><h3>Reads one chat</h3><p>New rows of the one configured 1:1 chat are read from <code>chat.db</code>, opened read-only.</p></li>
-    <li><h3>Posts to your bot</h3><p>Messages arrive in your private bot chat. Only your Telegram user id is accepted back.</p></li>
+    <li><h3>Reads your chosen chats</h3><p>New rows of the linked 1:1 chats are read from <code>chat.db</code>, opened read-only. Each chat has its own worker.</p></li>
+    <li><h3>Posts to its bot</h3><p>Each chat's messages arrive in its own private bot chat. Only your Telegram user id is accepted back.</p></li>
     <li><h3>Sends and checks</h3><p>Replies go out through a fixed AppleScript, then each send is confirmed in <code>chat.db</code>. Nothing is resent automatically.</p></li>
   </ol>
 <pre class="flow" aria-label="Data flow diagram">iMessage contact ── Messages.app on your Mac ──┐
                                                │ chat.db (read-only)
-                                    bluehop ──── https://api.telegram.org ──── your Telegram bot chat
+                                    bluehop ──── https://api.telegram.org ──── one Telegram bot chat per linked chat
                                                │ AppleScript send
                                                └── Messages.app → the same contact</pre>
 </section>
@@ -247,8 +250,8 @@ footer p { margin: 6px 0; }
   <table>
     <thead><tr><th scope="col"></th><th scope="col" class="us">bluehop</th><th scope="col">chatwire</th><th scope="col">BlueBubbles</th><th scope="col">mautrix-imessage</th></tr></thead>
     <tbody>
-    <tr><th scope="row">Used from</th><td class="us">One Telegram bot chat</td><td>Web UI, Telegram plugin, push, plugins</td><td>Android, Windows, Linux, web apps</td><td>Matrix clients</td></tr>
-    <tr><th scope="row">Chats</th><td class="us">One 1:1 chat</td><td>All, incl. groups</td><td>All, incl. groups</td><td>All, incl. groups</td></tr>
+    <tr><th scope="row">Used from</th><td class="us">One Telegram bot chat per linked chat</td><td>Web UI, Telegram plugin, push, plugins</td><td>Android, Windows, Linux, web apps</td><td>Matrix clients</td></tr>
+    <tr><th scope="row">Chats</th><td class="us">Chosen 1:1 chats, one bot each</td><td>All, incl. groups</td><td>All, incl. groups</td><td>All, incl. groups</td></tr>
     <tr><th scope="row">Listens on a port</th><td class="us">No</td><td>Yes (web UI; no auth by default per its README)</td><td>Yes (server, via proxy or port forwarding)</td><td>Needs a Matrix homeserver and websocket proxy</td></tr>
     <tr><th scope="row">Real replies/tapbacks into iMessage</th><td class="us">No (quoted text)</td><td>See its docs</td><td>With its Private API (requires disabling SIP)</td><td>Not on the standard macOS connector</td></tr>
     <tr><th scope="row">Stack, license</th><td class="us">Swift, 0 deps, MIT</td><td>Python, MIT</td><td>TypeScript, Apache-2.0</td><td>Go, AGPL-3.0</td></tr>
@@ -265,14 +268,14 @@ footer p { margin: 6px 0; }
 <pre><code>git clone https://github.com/kanziw/bluehop
 cd bluehop
 bash scripts/install.sh --no-load
-# grant Full Disk Access, store the bot token,
-# fill in config.json, then:
+# grant Full Disk Access to the binary, then:
+"$HOME/Library/Application Support/bluehop/bin/bluehop" mapping add
 bash scripts/agent-run.sh doctor --messages --telegram
 bash scripts/install.sh</code></pre>
     <ol>
-      <li>Create a bot with @BotFather and send it one message.</li>
+      <li>Create a bot with @BotFather, one per chat you want to link.</li>
       <li>Build and install with the script; nothing starts yet.</li>
-      <li>Put the token in the Keychain and grant Full Disk Access to the binary only.</li>
+      <li>Grant Full Disk Access to the binary only, then run <code>bluehop mapping add</code>: paste the token, pick the chat with the arrow keys, message the bot once.</li>
       <li>Run <code>doctor</code>; when every line is ✔, start the LaunchAgent.</li>
     </ol>
   </div>
@@ -281,12 +284,13 @@ bash scripts/install.sh</code></pre>
 
 <section id="faq">
   <h2>FAQ</h2>
-  <details open><summary>Can I get iMessages in Telegram?</summary><p>Yes, for one conversation. bluehop runs on a Mac signed in to Messages, reads new messages of one 1:1 chat from the Messages database (read-only), and forwards them to your Telegram bot chat. Replies you write in Telegram are sent back to that same chat.</p></details>
+  <details open><summary>Can I get iMessages in Telegram?</summary><p>Yes, for the 1:1 conversations you choose. bluehop runs on a Mac signed in to Messages, reads new messages of each linked chat from the Messages database (read-only), and forwards them to that chat's Telegram bot. Replies you write in Telegram are sent back to the same chat.</p></details>
   <details><summary>Do I need to disable SIP?</summary><p>No. bluehop uses only public mechanisms: read-only access to chat.db and AppleScript to send. The trade-off: replies and reactions you make in Telegram cannot become real iMessage threaded replies or tapbacks. Replies are sent with a quoted prefix; reactions are ignored by default.</p></details>
-  <details><summary>Does it work with group chats or several chats?</summary><p>No. It links exactly one iMessage 1:1 chat to one Telegram chat, and refuses to start if the configured chat is a group.</p></details>
+  <details><summary>Can I relay several chats?</summary><p>Yes, since 0.5.0. Each linked iMessage 1:1 chat gets its own Telegram bot (create one per chat with @BotFather), and one bluehop process relays them all. Add one with <code>bluehop mapping add</code>: it asks for the bot token, lets you pick the chat with the arrow keys and detects your Telegram ids from one message to the bot. Chats are isolated: a revoked token or a safety halt in one does not stop the others, and the same chat or bot cannot be linked twice. <code>bluehop status</code> shows each one.</p></details>
+  <details><summary>Does it work with group chats?</summary><p>No. Only 1:1 chats can be linked; a group chat is refused.</p></details>
   <details><summary>Does it open a port or use a cloud service?</summary><p>No. It makes outbound HTTPS requests to api.telegram.org only. Note that Telegram bot chats are not end-to-end encrypted, so relayed messages are stored on Telegram's servers.</p></details>
   <details><summary>Do I need a Mac?</summary><p>Yes. iMessage requires a Mac signed in to Messages. bluehop runs there as a LaunchAgent; it is not a hosted service.</p></details>
-  <details><summary>Can an AI agent install it for me?</summary><p>Mostly. The agent guide lists every step with a check. A person still has to grant Full Disk Access and Automation, and enter the bot token, because macOS and good security require it.</p></details>
+  <details><summary>Can an AI agent install it for me?</summary><p>Mostly. The agent guide lists every step with a check, every command has <code>--help</code> and <code>--json</code>, and the repository ships an agent skill file. A person still has to grant Full Disk Access and Automation, and hand over the bot token (on stdin, never in chat), because macOS and good security require it.</p></details>
   <details><summary>Is the bot in English?</summary><p>Not yet. Bot replies, <code>doctor</code> output and logs are currently in Korean. Your relayed messages pass through unchanged.</p></details>
 </section>
 </main>
