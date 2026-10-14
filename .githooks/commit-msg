@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+# Conventional Commits: <type>(<scope>)!: <English imperative summary, <= 72 chars>
+set -euo pipefail
+subject="$(grep -v '^#' "$1" | head -n 1)"
+case "$subject" in
+  "Merge "*|"Revert "*|"fixup! "*|"squash! "*|"amend! "*) exit 0 ;;
+esac
+fail() {
+  echo "✘ commit-msg: $1" >&2
+  echo "  subject: $subject" >&2
+  echo "  expected: <type>(<optional scope>)!: <summary>  — types: feat fix docs test refactor chore ci" >&2
+  echo "  example:  fix(relay): skip Telegram messages older than ten minutes" >&2
+  echo "  rules: AGENTS.md \"Commits\". Do not bypass with --no-verify." >&2
+  exit 1
+}
+re='^(feat|fix|docs|test|refactor|chore|ci)(\([a-z0-9._/-]+\))?!?: [^ ].*[^.]$'
+[[ "$subject" =~ $re ]] || fail "subject does not follow Conventional Commits (or ends with a period)"
+(( ${#subject} <= 72 )) || fail "subject is ${#subject} characters (max 72)"
+LC_ALL=C grep -q '[^ -~]' <<<"$subject" && fail "subject must be plain English (ASCII only)"
+exit 0

@@ -1,0 +1,24 @@
+# bluehop
+
+> iMessage to Telegram relay for one chat. A tiny, zero-dependency macOS tool that forwards one iMessage 1:1 conversation to a Telegram bot chat and sends Telegram replies back to it. Swift, single signed binary, no web UI, no open ports, no cloud, SIP stays enabled. Self-hosted on a Mac signed in to Messages. Not affiliated with Apple or Telegram. MIT license. Source: https://github.com/kanziw/bluehop
+
+Start with the agent guide: every install step has a verification command and the troubleshooting table quotes the exact (Korean) error strings. Some steps need a human (Full Disk Access, the Automation prompt, entering the bot token); the guide marks them.
+
+- [Agent guide](docs/AGENT-GUIDE.md): install, operate, verify, troubleshoot
+- [README](README.md): overview, comparison with chatwire / BlueBubbles / mautrix-imessage, configuration keys, limits
+- [README (Korean)](README.ko.md)
+- [Security](SECURITY.md): threat model and controls
+- [Contributor and agent rules](AGENTS.md)
+- [Design spec, Korean](SPEC.md): data flow, state, limits
+- [iMessage limits, Korean](docs/imessage-limits.md): why replies and reactions cannot be sent to iMessage without disabling SIP
+
+## Hard facts (as of 2026-10-15, version 0.4.0)
+- Name: the project is bluehop; the binary, install paths (`~/Library/Application Support/imsg-relay/`), LaunchAgent label and Keychain service (`dev.kanziw.imsg-relay`) still use the old name `imsg-relay`. Use those exact names in commands.
+- Platform: macOS 14+ target, built and run on macOS 26.0.1 with Xcode 26.2. Building needs full Xcode. No Linux, Windows or iOS.
+- Scope: exactly one iMessage 1:1 chat and one Telegram chat. No group chats, no multiple chats.
+- Telegram → iMessage: text up to 4000 characters, files up to 20 MB. Replies become a quoted prefix; reactions are ignored by default.
+- iMessage → Telegram: text, replies, tapbacks, photos, voice, video, files up to 50 MB.
+- Bot replies, CLI output and logs are in Korean.
+- Install: `bash scripts/install.sh --no-load`, then human steps, then `bash scripts/agent-run.sh doctor --messages --telegram`, then `bash scripts/install.sh`.
+- Never ask the human to paste the bot token into chat. It goes into the Keychain through a local prompt.
+- Never send test messages to the real contact without the human's explicit go-ahead.

@@ -1,0 +1,30 @@
+name: Feature request
+description: Suggest an improvement.
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        bluehop is deliberately small: one iMessage 1:1 chat, one Telegram chat, no dependencies, no open ports, SIP stays enabled. Requests outside that scope (group chats, many chats, web UI, other chat apps) will probably be declined; a full bridge such as BlueBubbles or mautrix-imessage may suit you better.
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem would this solve?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behavior
+    validations:
+      required: true
+  - type: textarea
+    id: security
+    attributes:
+      label: Security and scope impact
+      description: Does it need a new permission, a new network host, a dependency, or writing to Messages data?
+  - type: input
+    id: env
+    attributes:
+      label: macOS and bluehop versions
+      placeholder: "macOS 26.0.1, imsg-relay 0.4.0"

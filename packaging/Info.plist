@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleIdentifier</key>
+    <string>dev.kanziw.imsg-relay</string>
+    <key>CFBundleName</key>
+    <string>imsg-relay</string>
+    <key>CFBundleShortVersionString</key>
+    <string>0.4.0</string>
+    <key>NSAppleEventsUsageDescription</key>
+    <string>정해 둔 iMessage 대화 하나로 텔레그램에서 쓴 글과 첨부를 보내기 위해 메시지 앱을 제어합니다.</string>
+</dict>
+</plist>

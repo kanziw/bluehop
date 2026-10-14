@@ -1,0 +1,58 @@
+name: Bug report
+description: Something does not work as documented.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Security problems: please follow SECURITY.md instead of filing a public issue.
+        **Before pasting anything, remove the bot token, bot username, phone numbers, email handles, chat guids (`any;-;…`), Telegram chat/user ids and message text.**
+  - type: input
+    id: macos
+    attributes:
+      label: macOS version
+      description: Output of `sw_vers -productVersion`
+      placeholder: "26.0.1"
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: bluehop version
+      description: Output of `"$HOME/Library/Application Support/imsg-relay/bin/imsg-relay" version` (or the commit you built)
+      placeholder: "0.4.0"
+    validations:
+      required: true
+  - type: input
+    id: xcode
+    attributes:
+      label: Xcode / Swift version (build problems only)
+      description: "`xcodebuild -version` and `swift --version`"
+  - type: textarea
+    id: doctor
+    attributes:
+      label: doctor output (redacted)
+      description: Output of `bash scripts/agent-run.sh doctor --messages --telegram`, with the bot username and paths that contain your name redacted.
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened, and what did you expect?
+      description: Include the direction (iMessage → Telegram or Telegram → iMessage) and the kind of message (text, reply, reaction, photo, voice, file).
+    validations:
+      required: true
+  - type: textarea
+    id: log
+    attributes:
+      label: Relevant log lines (redacted)
+      description: From `~/Library/Logs/imsg-relay.log`. The log contains no message text, but check for anything personal before pasting.
+      render: text
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checks
+      options:
+        - label: I removed tokens, phone numbers, email handles, chat guids, Telegram ids and message text from this report.
+          required: true
