@@ -1,17 +1,27 @@
 {
-  "telegram": {
-    "chatId": 0,
-    "allowedUserId": 0,
-    "tokenSource": "keychain",
-    "tokenFile": null
-  },
-  "imessage": {
-    "chatGuid": "any;-;<상대 handle — list-chats 결과에서 복사>",
-    "handle": "<상대 handle, 예: +8210XXXXXXXX 또는 name@example.com>"
-  },
-  "relay": {
-    "mirrorOwnMessages": true,
-    "telegramReactionMode": "ignore",
-    "outboxDirectory": null
-  }
+  "version": 2,
+  "mappings": [
+    {
+      "id": "family",
+      "enabled": true,
+      "telegram": {
+        "chatId": 0,
+        "allowedUserId": 0,
+        "botId": null,
+        "botUsername": null,
+        "tokenSource": "keychain",
+        "tokenAccount": "bot-token:family",
+        "tokenFile": null
+      },
+      "imessage": {
+        "chatGuid": "any;-;<상대 handle — bluehop chats 결과에서 복사>",
+        "handle": "<상대 handle, 예: +8210XXXXXXXX 또는 name@example.com>"
+      },
+      "relay": {
+        "mirrorOwnMessages": true,
+        "telegramReactionMode": "ignore",
+        "outboxDirectory": null
+      }
+    }
+  ]
 }

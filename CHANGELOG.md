@@ -4,6 +4,30 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-10-15
+
+### Added
+- **Several chats at once.** The config holds a list of mappings; each links one iMessage 1:1 chat to its own Telegram bot. One process runs one isolated worker per enabled mapping: own Telegram poller, rate limits, safety halt, cursors, echo matching and staging folder. A failing mapping (revoked token, network error, chat not found, safety halt) does not stop the others; it backs off and retries. chat.db changes for all mapped chats are detected with one grouped query.
+- `bluehop mapping list|add|remove|pause|resume|test`. `mapping add` asks for the bot token with hidden input (or reads it from stdin with `--token-stdin`), checks it with `getMe`, lets you pick the iMessage chat with the arrow keys (numbered list on terminals without raw mode), detects your Telegram chat and user ids from a message to the bot, stores the token in the Keychain (`dev.kanziw.bluehop` / `bot-token:<id>`) and runs a check. Every value can also be passed as a flag for agents.
+- `bluehop chats [--search] [--limit] [--json]`: local 1:1 chats with service, last activity and the mapping that uses them. No message content.
+- `bluehop status [--json]`: per-mapping verdict (`ok`, `paused`, `halted`, `error`, `stale`, `unknown`), last Telegram poll, last error, and whether the LaunchAgent runs.
+- `--help` on every command, `--json` on read commands, documented exit codes (0, 1, 2 usage, 3 conflict, 4 not found, 5 timeout, 130 cancelled), `--config PATH`.
+- Config changes (add, pause, resume, remove) are picked up by the running relay within about five seconds.
+- When the terminal has no Full Disk Access, `chats`, `doctor` and the chat picker re-run the read through a one-shot launchd job of the installed binary.
+- Agent skill file `skills/bluehop/SKILL.md`, design note `docs/design-multi-mapping.md`.
+
+### Changed
+- **Breaking:** unknown flags and extra arguments are errors (exit 2) instead of being ignored.
+- **Breaking:** `list-chats` is now an alias of `bluehop chats` and prints its table. Diagnostics (`resume`, `diag-*`, `selfcheck-attributed`, `telegram-ids`) take `--mapping ID`, required when there is more than one mapping.
+- The state database keys every row by mapping. A 0.4 state database is migrated under the mapping `default` on first open, after a `state.sqlite.v1-backup` copy.
+- Telegram attachments are staged in a per-mapping subfolder of the staging folder.
+- `getUpdates` failures back off per mapping (3 s doubling to 60 s), including failures while taking the first Telegram baseline.
+- `install.sh` no longer writes a single-chat config template; add the first chat with `bluehop mapping add`. `uninstall.sh --purge` removes every mapping's Keychain token.
+
+### Compatibility
+- A 0.4 config (top-level `telegram`, `imessage`, `relay`) works unchanged as the mapping `default`, still using the Keychain account `telegram-bot-token`. The first `bluehop mapping` command that changes something rewrites it in the version 2 shape and keeps `config.json.v1-backup`.
+
+
 ## [0.4.1] - 2026-10-15
 
 ### Changed
@@ -58,6 +82,7 @@ First public release of **bluehop**. Earlier versions were developed privately a
 ### Added
 - First version: one iMessage 1:1 chat ↔ one Telegram chat, read-only chat.db reader, Telegram client, CLI (`run`, `doctor`, `telegram-ids`, `list-chats`, `resume`), signed build, LaunchAgent install scripts.
 
-[Unreleased]: https://github.com/kanziw/bluehop/compare/v0.4.1...HEAD
+[Unreleased]: https://github.com/kanziw/bluehop/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/kanziw/bluehop/compare/v0.4.1...v0.5.0
 [0.4.1]: https://github.com/kanziw/bluehop/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/kanziw/bluehop/releases/tag/v0.4.0

@@ -2,7 +2,7 @@
 
 > 프로젝트 이름은 bluehop 이다. 바이너리는 `bluehop`, 설치 경로는 `~/Library/Application Support/bluehop`, LaunchAgent 라벨·Keychain 서비스는 `dev.kanziw.bluehop` 이다.
 
-텔레그램 방 **하나** ↔ iMessage 1:1 대화 **하나**를 고정으로 잇는 작은 중계기.
+텔레그램 봇 방 **하나** ↔ iMessage 1:1 대화 **하나**를 고정으로 잇는 연결("매핑")을 여러 개 나란히 돌리는 작은 중계기. 매핑마다 봇 토큰이 따로다(0.5.0 부터, 설계: `docs/design-multi-mapping.md`).
 설계 결정: 범용 iMessage 브리지를 쓰는 대신 기능을 좁힌 중계기를 새로 만든다. 범용 브리지에서 흔한 위험(LAN 에 열린 웹 UI, 마지막 발신자 라우팅, 공용 인터프리터에 전체 디스크 권한, 고정되지 않은 의존성)을 설정이 아니라 **구조로** 없앤다(§4).
 
 **목표**: iMessage 로만 대화할 수 있는 상대(예: iMessage 전용 AI 비서, 가족 한 명)와의 대화를 텔레그램에서 보고, 텔레그램에서 답한다.
@@ -40,7 +40,14 @@
                                                        api.telegram.org (유일한 외부)
 ```
 
-한 루프가 순서대로 돈다: ① `getUpdates`(짧은 long-poll) → 허용 방·허용 사람만 처리 ② chat.db 새 행 처리 ③ 잠깐 쉼.
+한 프로세스가 켜진 매핑마다 일꾼을 하나씩 띄운다. 일꾼 하나의 루프가 순서대로 돈다: ① 자기 봇의 `getUpdates`(짧은 long-poll) → 허용 방·허용 사람만 처리 ② 자기 대화의 chat.db 새 행 처리 ③ 발송 확인.
+
+### 2-0. 매핑과 일꾼
+- 일꾼은 서로 아무것도 나눠 쓰지 않는다: 텔레그램 클라이언트(토큰), 속도 제한·안전 정지, 커서·offset·outbox(메아리 맞춤), 보낼 첨부 폴더(`<첨부 폴더>/<매핑 id>/`), chat.db·상태 DB 연결이 모두 매핑마다 따로다. 한 매핑의 토큰 폐기·네트워크 오류·안전 정지는 그 매핑만 멈춘다.
+- 예외 하나: chat.db 변화 감시는 공용이다. 매핑한 대화들의 마지막 ROWID 를 질의 한 번(`… WHERE chat_id IN (매핑한 대화) GROUP BY chat_id`, 최소 1초 간격)으로 읽고, 일꾼은 자기 대화에 커서 뒤 행이 있을 때만 행을 읽는다.
+- 시작에 실패한 일꾼(토큰 없음·대화 없음·같은 봇)은 오류를 상태 DB 에 남기고 5초부터 두 배씩 최대 5분 쉬었다 다시 시도한다. `getUpdates` 실패는 3초부터 두 배씩 최대 60초.
+- 설정 파일이 바뀌면(5초마다 확인) 일꾼을 맞춘다: 없어진·멈춘 매핑은 멈추고, 새 매핑은 띄우고, 바뀐 매핑은 다시 띄운다. 바뀐 설정이 잘못됐으면 로그만 남기고 지금 일꾼을 그대로 둔다. 멈추기는 await 지점에서만 일어나므로 시작한 발송은 끝나고 outbox 에 남는다.
+- 같은 봇을 두 매핑이 쓰지 못하게 설정 검사(botId·Keychain 계정·토큰 파일) 외에 실행 중에도 봇 id 로 한 번 더 막는다(`getUpdates` 는 토큰마다 받는 쪽이 하나뿐).
 
 ### 2-1. iMessage → 텔레그램
 1. 시작 시 `chat.guid = 설정값` 인 행을 찾는다. **style=45(1:1)이고 참가자가 정확히 1명이며 그 handle 이 설정의 handle 과 같아야** 시작한다(단체방이 묶이는 실수를 구조로 막음).
@@ -71,9 +78,11 @@
 
 ## 3. 상태 저장 (`state.sqlite`, 0600)
 
+파일 하나를 모든 매핑이 함께 쓰고 **모든 표의 모든 행에 `mapping_id`** 가 있다(기본 키에도 포함, `PRAGMA user_version = 2`). `StateStore` 는 매핑 하나의 보기라 모든 질의가 자기 `mapping_id` 로 한정된다. 0.4.x 상태 DB 는 처음 열 때 `VACUUM INTO 'state.sqlite.v1-backup'` 으로 사본을 만든 뒤, 트랜잭션 하나 안에서 표를 다시 만들고 기존 행을 `mapping_id = 'default'` 로 옮긴다.
+
 | 테이블 | 내용 | 메시지 본문 저장? |
 |---|---|---|
-| `kv` | `imsg_cursor`(ROWID), `tg_offset`, `halted`(사유) | 아니오 |
+| `kv` | `imsg_cursor`(ROWID), `tg_offset`, `halted`(사유), `health.*`(일꾼 상태·마지막 텔레그램 확인·마지막 오류 — `bluehop status` 가 읽음) | 아니오 |
 | `mapping` | `imsg_guid, part, tg_message_id, direction, created_at` | 아니오 |
 | `outbox` | `tg_message_id, part, kind, match_key, status(sending/sent/confirmed/failed), detail, matched_guid, notified` | 잠깐(메아리 맞춤 키, 확인 즉시·늦어도 1시간 뒤 삭제) |
 | `reaction_state` | 봇이 단 반응(취소 반영용) | 아니오 |
@@ -86,7 +95,7 @@
 | 범용 브리지에서 흔한 위험 | bluehop 의 구조적 대응 |
 |---|---|
 | 웹 UI 가 LAN(0.0.0.0)에 인증 없이 열림 | **웹 서버·리스닝 소켓 없음.** 나가는 HTTPS 만 쓴다. 텔레그램 기본 주소는 코드에 고정(`https://api.telegram.org`)이고 설정 파일로 바꿀 수 없다(테스트만 주입) |
-| 마지막 발신자에게 답장(라우팅 혼동) | 대화 1개 고정. 보내는 대상은 설정의 chat guid 하나뿐이고 시작 시 1:1·handle 일치를 검증 |
+| 마지막 발신자에게 답장(라우팅 혼동) | 매핑마다 대화 1개·봇 1개 고정. 봇마다 보내는 대상은 그 매핑의 chat guid 하나뿐이고 시작 시 1:1·handle 일치를 검증. 한 대화·한 봇을 두 매핑에 쓰는 설정은 거부 |
 | 공용 Python 에 전체 디스크 권한 | 서명된 **단일 바이너리**에만 권한을 준다. 인터프리터·플러그인·셸 없음 |
 | 의존성 미고정 | **외부 패키지 0개**(Swift 표준·Foundation·SQLite3·Security). `Package.resolved` 자체가 없다 |
 | osascript 스크립트에 값 삽입(셸·ssh 경유 시 주입) | `osascript` 를 셸 없이 직접 실행하고 본문·대상은 **argv 로만** 넘긴다(스크립트 문자열에 값을 끼워 넣지 않음) |
@@ -101,6 +110,7 @@
 
 ### 4-1. 속도 제한과 안전 정지
 - 토큰 버킷: 텔레그램으로 분당 20건, iMessage 로 분당 10건(넘으면 버리지 않고 기다림).
+- 위 제한과 안전 정지는 **매핑마다 따로** 센다(한 매핑의 정지가 다른 매핑을 멈추지 않는다).
 - 안전 정지(서킷 브레이커): 최근 10분 동안 텔레그램으로 120건 또는 iMessage 로 40건을 넘기면, 또는 시작 시 밀린 iMessage 가 50건을 넘으면 **양방향을 멈추고** `halted` 를 저장한 뒤 텔레그램에 한 번 알린다. 재개는 사용자가 `/resume`(텔레그램) 또는 `bluehop resume [--skip-backlog]`.
 - iMessage 로 보내는 글 최대 4000자, 첨부 최대 20MB(텔레그램 봇 내려받기 한도). 텔레그램으로 올리는 첨부 최대 50MB(넘으면 안내 글), 4000자 넘는 글은 나눠 보낸다.
 - 정지 중이거나 보낸 지 10분 넘은 텔레그램 글, 스티커는 보내지 않고 ⚠️ 로 알린다.
@@ -109,18 +119,34 @@
 
 ```json
 {
-  "telegram": { "chatId": 123456789, "allowedUserId": 123456789,
-                "tokenSource": "keychain", "tokenFile": null },
-  "imessage": { "chatGuid": "any;-;+15555550123", "handle": "+15555550123" },
-  "relay": { "mirrorOwnMessages": true, "telegramReactionMode": "ignore",
-             "outboxDirectory": null }
+  "version": 2,
+  "mappings": [
+    { "id": "family", "enabled": true,
+      "telegram": { "chatId": 123456789, "allowedUserId": 123456789, "botId": 111111, "botUsername": "family_relay_bot",
+                    "tokenSource": "keychain", "tokenAccount": "bot-token:family", "tokenFile": null },
+      "imessage": { "chatGuid": "any;-;+15555550123", "handle": "+15555550123" },
+      "relay": { "mirrorOwnMessages": true, "telegramReactionMode": "ignore", "outboxDirectory": null } }
+  ]
 }
 ```
 
-- `telegram.chatId`: 봇과의 1:1 방 id(0 이 아니어야 함). `telegram.allowedUserId`: 글을 받아 줄 텔레그램 사용자 id(양수). 둘 다 `bluehop telegram-ids` 가 알려 준다.
-- `telegram.tokenSource`: `"keychain"`(기본, 서비스 `dev.kanziw.bluehop` / 계정 `telegram-bot-token`) 또는 `"file"`. `"file"` 이면 `tokenFile` 경로가 필요하고(`~` 펼침), 그 파일은 현재 사용자 소유·0600 이어야 한다. 토큰 형식(`<숫자>:<영숫자_->`)이 아니면 거부한다.
+- `id`: 소문자로 시작, 소문자·숫자·`-`, 32자 이하. Keychain 계정·상태 DB·로그 접두(`[id]`)·CLI 인자에 쓴다. 글자로 시작하는 이유: 0.4.x 가 보낼 첨부 폴더 바로 아래에 남긴 숫자 이름 폴더와 겹치지 않게.
+- `enabled`: `false` 면 멈춘 매핑 — 일꾼을 띄우지 않는다(텔레그램도 iMessage 도 읽지 않음). 기본 `true`.
+- `telegram.chatId`: 그 봇과의 1:1 방 id(0 이 아니어야 함). `telegram.allowedUserId`: 글을 받아 줄 텔레그램 사용자 id(양수). `bluehop mapping add` 가 봇에게 온 메시지로 알아낸다.
+- `telegram.botId`·`botUsername`: 매핑을 추가할 때 `getMe` 로 기록. 토큰의 `:` 앞 숫자라 비밀이 아니고, 토큰을 읽지 않고도 같은 봇을 두 번 묶지 못하게 한다. 실행 중에는 토큰의 봇 id 가 이 값과 다르면 시작하지 않는다.
+- `telegram.tokenSource`: `"keychain"`(서비스 `dev.kanziw.bluehop` / 계정 `tokenAccount`, 비어 있으면 `bot-token:<id>`) 또는 `"file"`(`tokenFile`, `~` 펼침, 현재 사용자 소유·0600). 토큰 형식(`<숫자>:<영숫자_->`)이 아니면 거부한다.
 - `imessage.chatGuid`: `;-;` 가 든 1:1 형식만(단체방 `;+;` 거부). `imessage.handle`: 그 대화의 유일한 참가자(공백·`-`·괄호·대소문자 무시하고 비교).
-- `relay.mirrorOwnMessages`(기본 `true`), `relay.telegramReactionMode`(`"ignore"` 기본 / `"text"`), `relay.outboxDirectory`(기본 `~/Library/Caches/com.apple.MobileSMS/bluehop-outbox`, 메시지 앱 샌드박스가 읽을 수 있는 곳이어야 함 — `docs/imessage-limits.md` §2-1). `relay` 블록은 통째로 빠져도 된다.
+- `relay.*`: 매핑마다 따로. `mirrorOwnMessages`(기본 `true`), `telegramReactionMode`(`"ignore"` 기본 / `"text"`), `outboxDirectory`(기본 `~/Library/Caches/com.apple.MobileSMS/bluehop-outbox`, 그 아래 `<id>/` 를 쓴다. 메시지 앱 샌드박스가 읽을 수 있는 곳이어야 함 — `docs/imessage-limits.md` §2-1). `relay` 블록은 통째로 빠져도 된다.
+- **규칙(읽을 때·쓰기 전에 모두 검사)**: id 가 겹치지 않는다. iMessage 대화(같은 `chatGuid` 또는 같은 `handle`)는 한 매핑에만. 봇 토큰(같은 `botId`·같은 Keychain 계정·같은 토큰 파일)은 한 매핑에만 — (봇, 텔레그램 방) 쌍의 유일성은 여기에 포함된다. 어기면 `매핑 충돌:` 로 시작을 거부하고 CLI 는 종료 코드 3.
+- **0.4.x 설정**(버전 표시 없이 최상위 `telegram`·`imessage`·`relay`)은 손대지 않아도 매핑 `default` 하나로 읽는다(Keychain 계정 `telegram-bot-token` 그대로). 매핑 목록을 바꾸는 첫 CLI 명령(`mapping add/remove/pause/resume`)이 버전 2 로 다시 쓰고, 그 전에 `config.json.v1-backup`(0600)을 한 번 남긴다. 쓰기는 같은 폴더의 0600 임시 파일 → `rename` 이다. `run`·`doctor`·`status`·`mapping list` 는 설정을 쓰지 않는다.
 
 ## 6. 범위 밖
-iMessage 편집(`date_edited`)·보내기 취소 반영, 단체방, 여러 대화, 텔레그램 스티커 전달, 텔레그램 메시지 수정 반영, 텔레그램 반응 취소의 iMessage 반영.
+iMessage 편집(`date_edited`)·보내기 취소 반영, 단체방, 봇 하나로 여러 대화 잇기, 텔레그램 스티커 전달, 텔레그램 메시지 수정 반영, 텔레그램 반응 취소의 iMessage 반영.
+
+## 7. CLI
+
+명령·옵션·`--json` 모양·종료 코드는 `docs/design-multi-mapping.md` §5 와 README "CLI" 가 기준이다. 요점:
+- 모든 명령에 `--help`. 모르는 옵션·남는 인자는 오류(종료 코드 2). 조회 명령은 `--json` 으로 JSON 하나를 표준출력에 낸다(오류도 `{"ok": false, "error": {...}}`).
+- 종료 코드: 0 성공, 1 실패, 2 사용법, 3 충돌, 4 없음, 5 시간 초과, 130 취소.
+- 봇 토큰은 명령줄 인자로 받지 않는다(표준입력 `--token-stdin` 또는 숨김 입력). Keychain 에는 `security -i` 의 표준입력으로 넘겨 저장한다(`ps` 에 안 보임). 대화형 질문은 표준입력이 터미널이고 값이 빠졌을 때만 한다.
+- 터미널에 전체 디스크 접근이 없어 chat.db 를 못 열면, 읽기(`chats --json`, `doctor --json`)만 설치된 바이너리를 launchd 일회성 작업으로 돌려 받는다(`BLUEHOP_ONESHOT=1` 로 재귀 방지).

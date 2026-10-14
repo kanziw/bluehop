@@ -169,7 +169,8 @@ final class ConfigTests: XCTestCase {
         let dir = makeTempDir()
         let tokenPath = write("123456789:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\n", mode: 0o600, in: dir, name: "token")
         let p = write(sampleJSON().replacingOccurrences(of: "TOKENPATH", with: tokenPath), mode: 0o600, in: dir, name: "config.json")
-        let cfg = try ConfigLoader.load(path: p)
+        let cfg = try XCTUnwrap(ConfigLoader.load(path: p).mappings.first)
+        XCTAssertEqual(cfg.id, "default")
         XCTAssertEqual(cfg.telegram.chatId, 555)
         XCTAssertTrue(cfg.mirrorOwnMessages)
         XCTAssertEqual(cfg.reactionMode, .ignore)
@@ -184,7 +185,7 @@ final class ConfigTests: XCTestCase {
         }
         let tokenPath = write("123456789:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", mode: 0o644, in: dir, name: "token")
         let p2 = write(sampleJSON().replacingOccurrences(of: "TOKENPATH", with: tokenPath), mode: 0o600, in: dir, name: "c2.json")
-        let cfg = try ConfigLoader.load(path: p2)
+        let cfg = try XCTUnwrap(ConfigLoader.load(path: p2).mappings.first)
         XCTAssertThrowsError(try ConfigLoader.loadToken(cfg))
     }
 
@@ -194,7 +195,7 @@ final class ConfigTests: XCTestCase {
         XCTAssertThrowsError(try ConfigLoader.load(path: p))
         let tokenPath = write("123:abc/../x", mode: 0o600, in: dir, name: "token")
         let p2 = write(sampleJSON().replacingOccurrences(of: "TOKENPATH", with: tokenPath), mode: 0o600, in: dir, name: "c2.json")
-        XCTAssertThrowsError(try ConfigLoader.loadToken(try ConfigLoader.load(path: p2)))
+        XCTAssertThrowsError(try ConfigLoader.loadToken(try XCTUnwrap(ConfigLoader.load(path: p2).mappings.first)))
     }
 }
 

@@ -1,10 +1,12 @@
 # bluehop
 
-> iMessage to Telegram relay for one chat. A tiny, zero-dependency macOS tool that forwards one iMessage 1:1 conversation to a Telegram bot chat and sends Telegram replies back to it. Swift, single signed binary, no web UI, no open ports, no cloud, SIP stays enabled. Self-hosted on a Mac signed in to Messages. Not affiliated with Apple or Telegram. MIT license. Source: https://github.com/kanziw/bluehop
+> iMessage to Telegram relay, one bot per chat. A tiny, zero-dependency macOS tool that forwards iMessage 1:1 conversations to Telegram bot chats (one bot per linked chat, several chats in one process) and sends Telegram replies back. Swift, single signed binary, no web UI, no open ports, no cloud, SIP stays enabled. Self-hosted on a Mac signed in to Messages. Not affiliated with Apple or Telegram. MIT license. Source: https://github.com/kanziw/bluehop
 
 Start with the agent guide: every install step has a verification command and the troubleshooting table quotes the exact (Korean) error strings. Some steps need a human (Full Disk Access, the Automation prompt, entering the bot token); the guide marks them.
 
 - [Agent guide](docs/AGENT-GUIDE.md): install, operate, verify, troubleshoot
+- [Agent skill](skills/bluehop/SKILL.md): task-oriented instructions (add a mapping non-interactively, inspect, troubleshoot, safety rules)
+- [Multi-mapping design](docs/design-multi-mapping.md): config model, isolation, CLI, exit codes
 - [README](README.md): overview, comparison with chatwire / BlueBubbles / mautrix-imessage, configuration keys, limits
 - [README (Korean)](README.ko.md)
 - [Security](SECURITY.md): threat model and controls
@@ -12,13 +14,15 @@ Start with the agent guide: every install step has a verification command and th
 - [Design spec, Korean](SPEC.md): data flow, state, limits
 - [iMessage limits, Korean](docs/imessage-limits.md): why replies and reactions cannot be sent to iMessage without disabling SIP
 
-## Hard facts (as of 2026-10-15, version 0.4.1)
+## Hard facts (as of 2026-10-15, version 0.5.0)
 - Name: the project and binary are bluehop; install paths are under `~/Library/Application Support/bluehop/`, and the LaunchAgent label and Keychain service are `dev.kanziw.bluehop`.
 - Platform: macOS 14+ target, built and run on macOS 26.0.1 with Xcode 26.2. Building needs full Xcode. No Linux, Windows or iOS.
-- Scope: exactly one iMessage 1:1 chat and one Telegram chat. No group chats, no multiple chats.
+- Scope: chosen iMessage 1:1 chats, each linked to its own Telegram bot ("mapping"); several mappings run in one process, isolated from each other. No group chats, no several chats through one bot.
+- CLI: `bluehop chats`, `bluehop mapping list|add|remove|pause|resume|test`, `bluehop doctor [--mapping ID]`, `bluehop status`. Every command has `--help`; read commands take `--json`; unknown flags exit 2. Exit codes: 0 ok, 1 failure, 2 usage, 3 conflict, 4 not found, 5 timeout, 130 cancelled.
+- Adding a mapping without prompts: `bluehop mapping add --token-stdin --chat <guid> --id <slug> --json < token-file` (the token is never a command-line argument).
 - Telegram → iMessage: text up to 4000 characters, files up to 20 MB. Replies become a quoted prefix; reactions are ignored by default.
 - iMessage → Telegram: text, replies, tapbacks, photos, voice, video, files up to 50 MB.
 - Bot replies, CLI output and logs are in Korean.
-- Install: `bash scripts/install.sh --no-load`, then human steps, then `bash scripts/agent-run.sh doctor --messages --telegram`, then `bash scripts/install.sh`.
-- Never ask the human to paste the bot token into chat. It goes into the Keychain through a local prompt.
+- Install: `bash scripts/install.sh --no-load`, then the human grants Full Disk Access, then `bluehop mapping add`, then `bash scripts/agent-run.sh doctor --messages --telegram`, then `bash scripts/install.sh`.
+- Never ask the human to paste the bot token into chat. It goes into the Keychain through the hidden prompt of `bluehop mapping add` or stdin.
 - Never send test messages to the real contact without the human's explicit go-ahead.

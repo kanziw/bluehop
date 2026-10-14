@@ -5,7 +5,7 @@ body:
   - type: markdown
     attributes:
       value: |
-        bluehop is deliberately small: one iMessage 1:1 chat, one Telegram chat, no dependencies, no open ports, SIP stays enabled. Requests outside that scope (group chats, many chats, web UI, other chat apps) will probably be declined; a full bridge such as BlueBubbles or mautrix-imessage may suit you better.
+        bluehop is deliberately small: chosen iMessage 1:1 chats, one Telegram bot each, no dependencies, no open ports, SIP stays enabled. Requests outside that scope (group chats, all chats through one bot, web UI, other chat apps) will probably be declined; a full bridge such as BlueBubbles or mautrix-imessage may suit you better.
   - type: textarea
     id: problem
     attributes:

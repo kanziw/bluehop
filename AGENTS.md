@@ -1,12 +1,14 @@
 # bluehop: rules for agents and contributors
 
-bluehop is a single Swift binary (`bluehop`, see Identifiers) that links one Telegram chat to one iMessage 1:1 chat. Sources of truth: requirements, data flow and security in `SPEC.md`; iMessage-side limits in `docs/imessage-limits.md`; observed chat.db row shapes and the tests that pin them in `docs/observed-facts.md`. Setup and operation for agents: `docs/AGENT-GUIDE.md`.
+bluehop is a single Swift binary (`bluehop`, see Identifiers) that links iMessage 1:1 chats to Telegram bot chats, one bot per chat ("mappings", run side by side in one process). Multi-mapping design: `docs/design-multi-mapping.md`. Skill file for agents operating an install: `skills/bluehop/SKILL.md`. Sources of truth: requirements, data flow and security in `SPEC.md`; iMessage-side limits in `docs/imessage-limits.md`; observed chat.db row shapes and the tests that pin them in `docs/observed-facts.md`. Setup and operation for agents: `docs/AGENT-GUIDE.md`.
 
 ## Hard rules
 - **Zero external packages.** Do not add `dependencies:` / `.package(` to `Package.swift`. If you think one is needed, stop and report to the operator instead (security review comes first).
 - **No open ports, no web server.** The only outbound host is `https://api.telegram.org`. Do not make the base URL configurable from the config file (tests inject it through the initializer only).
 - **Open chat.db with `SQLITE_OPEN_READONLY` only.** Write nothing under `~/Library/Messages`.
-- Every chat.db query is scoped to the one fixed chat ROWID (`chat_message_join.chat_id = ?`).
+- Every chat.db message query is scoped to configured chat ROWIDs (`chat_message_join.chat_id = ?` or `IN (…)` of mapped chats). The only exception is `listOneToOneChats` (guid, handle, service, last activity; no message text).
+- One mapping never reads or writes another mapping's state: every `StateStore` query filters on its `mapping_id`. Keep it that way.
+- Bot tokens never on argv or in output. The CLI reads them from stdin or a hidden prompt; do not add a flag that takes a token value.
 - Pass values to osascript through argv only. Never interpolate message text or identifiers into the script string.
 - Never put message text, phone numbers, email handles or the bot token in logs or error messages.
 - Never use the real `~/Library/Messages/chat.db` in tests. Tests build a temporary SQLite from the fixture schema in `Tests/`.
@@ -32,8 +34,9 @@ bash scripts/build-release.sh   # signed release binary -> dist/bluehop
 Agents do not grant macOS permissions, do not enter or read the bot token, and do not send real messages. Diagnostic commands that send (`diag-send-file`) need the operator's explicit go-ahead.
 
 ## Layout
-- `Sources/BluehopCore/`: logic (under test). `Relay.swift` is the two-way engine.
-- `Sources/BluehopCLI/main.swift`: `run`, `doctor`, `telegram-ids`, `list-chats`, `resume`, `selfcheck-attributed`, `diag-echo`, `diag-send-file`, `diag-audio`, `version`.
+- `Sources/BluehopCore/`: logic (under test). `Relay.swift` is the two-way engine for one mapping; `Supervisor.swift` runs one worker per mapping and reloads the config; `Config.swift` holds the mapping list, migration and guard rails; `MappingAdd.swift` the `mapping add` flow; `CLIArgs.swift` the argument parser and exit codes; `ChatPicker.swift` the terminal-free picker logic.
+- `Sources/BluehopCLI/`: `main.swift` (command table, help), `Commands.swift` (`run`, `chats`, `mapping list|add|remove|pause|resume|test`, `doctor`, `status`, `telegram-ids`, `resume`, diagnostics, `version`), `Terminal.swift` (raw-mode picker, hidden prompt).
+- CLI contract: every command has `--help`, unknown flags exit 2, `--json` output keys and exit codes are documented in README "CLI" and must stay stable (changing them is a breaking change).
 - `Tests/BluehopCoreTests/`: fixture chat.db, mock Telegram (URLProtocol), fake Messages sender.
 
 ## Identifiers

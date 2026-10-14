@@ -56,6 +56,8 @@ public enum ChatDBError: Error, CustomStringConvertible {
 public final class ChatDB {
     let db: SQLiteDB
     let attachmentsRoot: String
+    /// `messages(after:chat:)` 를 부른 횟수(공용 감시가 헛조회를 줄이는지 테스트가 본다).
+    public private(set) var messageQueryCount = 0
 
     /// - Parameters:
     ///   - path: chat.db 경로. 항상 `SQLITE_OPEN_READONLY` 로 연다.
@@ -78,14 +80,15 @@ public final class ChatDB {
         guard style == 45, handles.count == 1 else {
             throw ChatDBError.notOneToOne(style: style, participants: handles.count)
         }
-        guard Self.normalizeHandle(handles[0]) == Self.normalizeHandle(expectedHandle) else {
+        guard MappingRules.normalizeHandle(handles[0]) == MappingRules.normalizeHandle(expectedHandle) else {
             throw ChatDBError.handleMismatch
         }
         return ChatInfo(rowid: rowid, guid: guid, handle: handles[0])
     }
 
-    static func normalizeHandle(_ h: String) -> String {
-        h.lowercased().filter { !$0.isWhitespace && $0 != "-" && $0 != "(" && $0 != ")" }
+    /// 읽기가 되는지만 확인한다(전체 디스크 접근 권한이 없으면 여기서 실패).
+    public func probe() throws {
+        _ = try db.query("SELECT 1 FROM chat LIMIT 1") { _ in true }
     }
 
     public func maxRowID(chat: ChatInfo) throws -> Int64 {
@@ -106,6 +109,7 @@ public final class ChatDB {
         """
 
     public func messages(after cursor: Int64, chat: ChatInfo, limit: Int = 50) throws -> [IMMessage] {
+        messageQueryCount += 1
         let rows = try db.query("""
             SELECT \(Self.messageColumns)
             FROM message m JOIN chat_message_join cmj ON cmj.message_id = m.ROWID
@@ -181,12 +185,28 @@ public final class ChatDB {
         return real
     }
 
-    public struct ChatSummary { public var guid: String; public var handle: String; public var lastRowID: Int64 }
+    public struct ChatSummary: Equatable {
+        public var guid: String
+        public var handle: String
+        public var lastRowID: Int64
+        /// chat.service_name (예: iMessage, SMS). 없으면 nil.
+        public var service: String?
+        /// 마지막 메시지 시각(유닉스초). 메시지가 없으면 nil.
+        public var lastMessageAt: Double?
+        public init(guid: String, handle: String, lastRowID: Int64, service: String? = nil, lastMessageAt: Double? = nil) {
+            self.guid = guid
+            self.handle = handle
+            self.lastRowID = lastRowID
+            self.service = service
+            self.lastMessageAt = lastMessageAt
+        }
+    }
 
-    /// `list-chats` 용: 1:1 대화 식별자와 상대 handle 만(본문 없음).
+    /// `chats` 용: 1:1 대화 식별자·상대 handle·서비스·마지막 시각만(본문 없음). 최근 순.
     public func listOneToOneChats(limit: Int = 30) throws -> [ChatSummary] {
-        try db.query("""
-            SELECT c.guid, h.id, IFNULL(MAX(cmj.message_id), 0) AS last
+        let hasService = try columnExists(table: "chat", column: "service_name")
+        let rows = try db.query("""
+            SELECT c.guid, h.id, IFNULL(MAX(cmj.message_id), 0) AS last, \(hasService ? "c.service_name" : "NULL")
             FROM chat c
             JOIN chat_handle_join chj ON chj.chat_id = c.ROWID
             JOIN handle h ON h.ROWID = chj.handle_id
@@ -195,7 +215,39 @@ public final class ChatDB {
             GROUP BY c.ROWID
             HAVING COUNT(DISTINCT chj.handle_id) = 1
             ORDER BY last DESC LIMIT ?
-            """, [.int(Int64(limit))]) { ChatSummary(guid: $0.text(0) ?? "", handle: $0.text(1) ?? "", lastRowID: $0.int(2) ?? 0) }
+            """, [.int(Int64(limit))]) { ChatSummary(guid: $0.text(0) ?? "", handle: $0.text(1) ?? "", lastRowID: $0.int(2) ?? 0, service: $0.text(3)) }
+        return try rows.map { c in
+            var c = c
+            if c.lastRowID > 0 {
+                let raw = try db.query("SELECT date FROM message WHERE ROWID = ?", [.int(c.lastRowID)]) { $0.int(0) }.first ?? nil
+                c.lastMessageAt = raw.flatMap(Self.unixTime(appleDate:))
+            }
+            return c
+        }
+    }
+
+    func columnExists(table: String, column: String) throws -> Bool {
+        try db.query("SELECT 1 FROM pragma_table_info(?) WHERE name = ?", [.text(table), .text(column)]) { _ in true }.first ?? false
+    }
+
+    /// message.date: 2001-01-01 기준. 예전 macOS 는 초, 지금은 나노초.
+    public static func unixTime(appleDate raw: Int64) -> Double? {
+        guard raw > 0 else { return nil }
+        let seconds = raw > 1_000_000_000_000 ? Double(raw) / 1_000_000_000 : Double(raw)
+        return seconds + 978_307_200
+    }
+
+    /// 여러 대화의 마지막 메시지 ROWID 를 한 번의 질의로 읽는다(공용 감시용). 설정한 대화 ROWID 로만 한정한다.
+    public func latestRowIDs(chats: [Int64]) throws -> [Int64: Int64] {
+        guard !chats.isEmpty else { return [:] }
+        let marks = Array(repeating: "?", count: chats.count).joined(separator: ", ")
+        var out: [Int64: Int64] = [:]
+        for (chat, last) in try db.query("""
+            SELECT chat_id, MAX(message_id) FROM chat_message_join WHERE chat_id IN (\(marks)) GROUP BY chat_id
+            """, chats.map { .int($0) }, map: { ($0.int(0) ?? 0, $0.int(1) ?? 0) }) {
+            out[chat] = last
+        }
+        return out
     }
 
     /// 자가 점검용: text 와 attributedBody 가 둘 다 있는 행에서 추출 결과가 text 와 같은지 센다(본문은 밖으로 안 냄).
@@ -339,5 +391,47 @@ extension ChatDB {
         if name == "Audio Message.caf" { return "\"Audio Message.caf\"" }
         if name.range(of: #"^voice-\d+\.[a-z0-9]+$"#, options: .regularExpression) != nil { return "voice-<id>.\((name as NSString).pathExtension)" }
         return "기타(.\((name as NSString).pathExtension.lowercased()))"
+    }
+}
+
+/// 여러 매핑이 함께 쓰는 chat.db 변화 감시. 감시 중인 대화들의 마지막 ROWID 를 한 번의 질의로 읽어 두고
+/// (최소 `minInterval` 초 간격), 각 일꾼은 자기 대화에 커서 뒤 행이 있을 때만 행을 읽는다.
+/// 일꾼들이 서로 다른 스레드에서 부르므로 잠금으로 감싼다(연결도 이 객체만 쓴다).
+public final class ChatActivity {
+    let db: ChatDB
+    let minInterval: Double
+    let now: () -> Double
+    let lock = NSLock()
+    var watched: Set<Int64> = []
+    var latest: [Int64: Int64] = [:]
+    var lastRefresh = -Double.infinity
+    var refreshes = 0
+
+    public init(chatDB: ChatDB, minInterval: Double = 1.0, now: @escaping () -> Double = { Date().timeIntervalSince1970 }) {
+        self.db = chatDB
+        self.minInterval = minInterval
+        self.now = now
+    }
+
+    public func watch(_ chatRowID: Int64) {
+        lock.lock(); defer { lock.unlock() }
+        if watched.insert(chatRowID).inserted { lastRefresh = -Double.infinity }
+    }
+
+    /// 지금까지 한 묶음 질의 횟수.
+    public var refreshCount: Int { lock.lock(); defer { lock.unlock() }; return refreshes }
+
+    /// 그 대화의 마지막 메시지 ROWID. 읽기에 실패하면 nil(일꾼이 직접 조회한다).
+    public func latestRowID(chat: Int64) -> Int64? {
+        lock.lock(); defer { lock.unlock() }
+        guard watched.contains(chat) else { return nil }
+        let t = now()
+        if t - lastRefresh >= minInterval {
+            guard let fresh = try? db.latestRowIDs(chats: watched.sorted()) else { return nil }
+            latest = fresh
+            lastRefresh = t
+            refreshes += 1
+        }
+        return latest[chat] ?? 0
     }
 }

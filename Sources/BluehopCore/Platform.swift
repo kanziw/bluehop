@@ -7,15 +7,21 @@ public struct ProcessResult { public var status: Int32; public var stdout: Strin
 
 public enum ProcessRunner {
     /// 셸을 거치지 않고 실행 파일을 직접 띄운다. 인자는 그대로 argv 가 된다.
-    public static func run(_ executable: String, _ args: [String], timeout: TimeInterval = 30) throws -> ProcessResult {
+    /// - Parameter stdin: 표준입력으로 넘길 값(비밀은 argv 가 아니라 여기로 — `ps` 에 보이지 않는다).
+    public static func run(_ executable: String, _ args: [String], timeout: TimeInterval = 30, stdin: Data? = nil) throws -> ProcessResult {
         let p = Process()
         p.executableURL = URL(fileURLWithPath: executable)
         p.arguments = args
         let out = Pipe(), err = Pipe()
         p.standardOutput = out
         p.standardError = err
-        p.standardInput = FileHandle.nullDevice
+        let input = stdin.map { _ in Pipe() }
+        p.standardInput = input ?? FileHandle.nullDevice
         try p.run()
+        if let input, let stdin {
+            input.fileHandleForWriting.write(stdin)
+            try? input.fileHandleForWriting.close()
+        }
         let deadline = Date().addingTimeInterval(timeout)
         while p.isRunning && Date() < deadline { usleep(50_000) }
         if p.isRunning {

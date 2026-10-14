@@ -13,7 +13,7 @@
 | 실패 행: `error=25`, `is_sent=0`, `is_delivered=0`, attachment `transfer_state=6`, `filename` = 넘긴 경로 그대로, `mime_type=image/jpeg` | `testFailedAttachmentRowKeepsSentPathAndError25` |
 | 성공 행: `error=0`, `is_sent=1`, `transfer_state=5`, `filename` = `~/Library/Messages/Attachments/…/원래이름` 사본 | `testSendDiagRowsReadsSuccessShape` |
 | 사진+캡션은 chat.db 에 **두 행**(첨부 행 → 캡션 글 행 순). 사진만 실패해도 캡션은 간다 | `testAttachmentMatrix` |
-| 사진 `photo-<id>.jpg`, 음성 `voice-<id>.m4a`(ogg 변환), 파일은 원래 이름 — 모두 `<첨부폴더>/<텔레그램 id>/`(0700) | `testAttachmentMatrix` |
+| 사진 `photo-<id>.jpg`, 음성 `voice-<id>.m4a`(ogg 변환), 파일은 원래 이름 — 모두 `<첨부폴더>/<매핑 id>/<텔레그램 id>/`(0700, 0.5.0 부터 매핑 폴더 아래) | `testAttachmentMatrix`, `MultiMappingConfigTests.testPerMappingOptionsUseOwnStagingFolder` |
 | 사진·음성·파일 × 캡션 유무 × 성공/error=25 12가지: 보내는 순서, outbox 상태, 메아리 미재게시, ⚠️ 는 실패 때만 1번(원인 설명 포함) | `testAttachmentMatrix` |
 | 첨부 실패 ⚠️ 는 폴더가 원인이면 "샌드박스", 아니면 다른 원인을 적는다 | `testAttachmentErrorIsExplainedInWarning`, `testFailureDetailWhenFolderIsReadable` |
 | 중계한 음성(`voice-<id>.m4a`) 행은 `is_audio_message=0`, `expire_state=0`, `mime=audio/x-m4a`, `uti=com.apple.m4a-audio` — 음성 말풍선이 아니라 오디오 파일 첨부(2026-10-15, `imessage-limits.md` §2-2) | `ObservedShapeTests.testRelayedVoiceRowIsPlainAudioAttachmentNotAudioMessage`, `testAudioDiagIncludesFlaggedAudioMessageAndHidesOtherNames` |
@@ -27,3 +27,9 @@
 | 줄바꿈이 U+2028 로, 따옴표·대시가 둥근 꼴로 적힐 수 있다 | `testMultilineTextEchoedWithUnicodeLineSeparatorStillMatches`, `testSmartPunctuationEchoStillMatches` |
 | 상대 답글의 `thread_originator_part`: 첨부 행이면 `0:0:1`, 글 행이면 `0:0:<길이>` — 둘 다 원래 텔레그램 글에 답글로 잇는다 | `testCounterpartRepliesToPhotoAndCaptionThreadOnTelegram`, `testReplyUsesMappedTelegramMessage` |
 | 상대 반응 행은 `text` 가 차 있고(`Loved …`) `associated_message_guid=p:0/<GUID>`, 기본 반응은 emoji NULL — 글로 중계하지 않고 반응으로 단다 | `testCounterpartReactionRowWithTextBecomesReactionOnly`, `testTapbacksBecomeTelegramReactions` |
+
+## chat.db 파일
+
+| 사실 | 테스트 |
+|---|---|
+| `~/Library/Messages` 에 `chat.db-wal`·`chat.db-shm` 이 있다 — chat.db 는 WAL 모드다(2026-10-15, macOS 26.0.1, 목록만 확인). fixture 도 WAL 로 만들어, 여러 일꾼이 읽기 전용으로 읽는 동안 새 행이 써져도 서로 막지 않는 실제 조건을 흉내 낸다 | `MultiMappingRelayTests.testFailingWorkerDoesNotStopAnother`, `testWorkerThatCannotStartRetriesWhileOthersRun` |

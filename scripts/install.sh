@@ -25,10 +25,10 @@ cp -f dist/bluehop "$BIN"
 chmod 700 "$BIN"
 codesign --verify --strict "$BIN"
 
+HAS_CONFIG=1
 if [[ ! -f "$SUPPORT/config.json" ]]; then
-  cp packaging/config.example.json "$SUPPORT/config.json"
-  chmod 600 "$SUPPORT/config.json"
-  echo "[install] 설정 틀을 만들었습니다: $SUPPORT/config.json (docs/AGENT-GUIDE.md 6단계대로 채우세요)"
+  HAS_CONFIG=0
+  echo "[install] 매핑이 아직 없습니다. 전체 디스크 접근을 준 뒤 추가하세요: \"$BIN\" mapping add (docs/AGENT-GUIDE.md 5단계)"
 fi
 
 sed -e "s|__BIN__|$BIN|g" -e "s|__LOG__|$LOG|g" packaging/$LABEL.plist.template > "$PLIST"
@@ -38,6 +38,10 @@ plutil -lint "$PLIST" >/dev/null
 if [[ $LOAD -eq 0 ]]; then
   echo "[install] 배치만 했습니다: $BIN"
   exit 0
+fi
+if [[ $HAS_CONFIG -eq 0 ]]; then
+  echo "[install] 설정이 없어 LaunchAgent 를 켜지 않았습니다. 매핑을 추가한 뒤 다시: bash scripts/install.sh" >&2
+  exit 1
 fi
 # 터미널이 아니라 이 바이너리 자신의 권한으로 점검한다(scripts/agent-run.sh).
 if ! BLUEHOP_BIN="$BIN" bash scripts/agent-run.sh doctor; then

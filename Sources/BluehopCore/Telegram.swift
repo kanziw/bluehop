@@ -2,7 +2,13 @@ import Foundation
 
 // MARK: - 모델 (필요한 필드만)
 
-public struct TGUser: Decodable, Equatable { public var id: Int64; public var is_bot: Bool? }
+public struct TGUser: Decodable, Equatable {
+    public var id: Int64
+    public var is_bot: Bool?
+    /// 설정 도우미가 확인용으로 보여 줄 때만 쓴다(로그에 남기지 않음).
+    public var first_name: String?
+    public var username: String?
+}
 public struct TGChat: Decodable, Equatable { public var id: Int64; public var type: String? }
 public struct TGFileRef: Decodable, Equatable {
     public var file_id: String
@@ -117,6 +123,9 @@ public final class TelegramClient {
         self.session = session
     }
 
+    /// 토큰의 봇 id(`:` 앞 숫자). 비밀이 아니다.
+    public var botID: Int64? { ConfigLoader.botID(ofToken: token) }
+
     private func methodURL(_ method: String) -> URL {
         base.appendingPathComponent("bot\(token)").appendingPathComponent(method)
     }
@@ -149,8 +158,22 @@ public final class TelegramClient {
 
     /// 토큰 확인용. 봇 username 을 돌려준다.
     public func getMe() async throws -> String {
-        struct Me: Decodable { var username: String? }
-        return try await call("getMe", [:], as: Me.self).username ?? ""
+        try await getMeInfo().username
+    }
+
+    public struct BotInfo: Equatable { public var id: Int64; public var username: String }
+
+    /// 토큰 확인용. 봇 id 와 username.
+    public func getMeInfo() async throws -> BotInfo {
+        struct Me: Decodable { var id: Int64; var username: String? }
+        let me = try await call("getMe", [:], as: Me.self)
+        return BotInfo(id: me.id, username: me.username ?? "")
+    }
+
+    /// 설정 도우미용: offset 을 올리지 않고(확인 처리 없이) 쌓인 메시지 업데이트를 본다. `timeout` 초까지 long-poll.
+    public func peekMessages(timeout: Int) async throws -> [TGMessage] {
+        try await call("getUpdates", ["timeout": timeout, "allowed_updates": ["message"]], as: [TGUpdate].self,
+                       timeout: TimeInterval(timeout + 15)).compactMap { $0.message }
     }
 
     /// 설정용: offset 을 올리지 않고 최근 업데이트의 (chat id, 보낸 사람 id)만 본다.

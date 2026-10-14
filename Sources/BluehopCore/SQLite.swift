@@ -97,7 +97,7 @@ public final class SQLiteDB {
             } else if rc == SQLITE_DONE {
                 break
             } else {
-                throw SQLiteError(message: String(cString: sqlite3_errmsg(handle)))
+                throw SQLiteError(message: "\(String(cString: sqlite3_errmsg(handle))) (rc=\(sqlite3_extended_errcode(handle)))")
             }
         }
         return out

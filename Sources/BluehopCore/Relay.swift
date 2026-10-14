@@ -26,6 +26,8 @@ public final class Relay {
         /// 첨부를 둔 폴더가 메시지 앱(샌드박스)이 읽을 수 없는 곳이면 보내지 않고 ⚠️ 로 알린다.
         /// 보내 봐야 chat.db 에 error=25 로 실패가 남을 뿐이다(사고 2026-10-14). 테스트는 임시 폴더를 쓰므로 끈다.
         public var requireMessagesReadableOutbox = true
+        /// 0.4.x 는 보낼 첨부를 매핑 폴더 없이 바로 이 폴더 아래(숫자 이름)에 두었다. 설정하면 그 남은 폴더도 정리한다.
+        public var legacyOutboxRoot: URL?
 
         public init(chatGuid: String, handle: String, allowedUserID: Int64, chatID: Int64, outboxDir: URL, tmpDir: URL) {
             self.chatGuid = chatGuid
@@ -53,13 +55,22 @@ public final class Relay {
     let toTGBreaker: SafetyBreaker
     let toIMBreaker: SafetyBreaker
 
+    /// 여러 매핑이 chat.db 변화를 함께 확인하는 공용 감시(없으면 매 루프 직접 조회).
+    let activity: ChatActivity?
+
     public private(set) var chat: ChatInfo?
     var failedAttempts: [Int64: Int] = [:]
     var editNoticeSent: Set<Int64> = []
     var lastCleanup: Double = 0
+    /// 연속된 getUpdates 실패 횟수(일꾼마다 따로 물러선다).
+    var telegramFailures = 0
+    var lastHealthWrite: Double = 0
+    var lastScanWrite: Double = 0
 
     public init(chatDB: ChatDB, state: StateStore, telegram: TelegramClient, sender: MessagesSender,
-                converter: MediaConverter, clock: Clock, options: Options, log: @escaping (String) -> Void = { _ in }) {
+                converter: MediaConverter, clock: Clock, options: Options, activity: ChatActivity? = nil,
+                log: @escaping (String) -> Void = { _ in }) {
+        self.activity = activity
         self.chatDB = chatDB
         self.state = state
         self.telegram = telegram
@@ -80,6 +91,7 @@ public final class Relay {
     public func start() async throws {
         let chat = try chatDB.resolveChat(guid: options.chatGuid, expectedHandle: options.handle)
         self.chat = chat
+        activity?.watch(chat.rowid)
         for dir in [options.outboxDir, options.tmpDir] {
             try ConfigLoader.ensurePrivateDir(dir.path)
         }
@@ -105,25 +117,31 @@ public final class Relay {
     /// 처음부터(설정 과정에서 보낸 글까지) 돌려주므로, 기준선 없이 받으면 켜기 전 백로그가 그대로
     /// iMessage 로 나간다(사고 2026-10-14: 설정 중 보낸 'Hi' 가 켜자마자 전송됨).
     /// 첫 실행(또는 상태 DB 초기화 뒤)엔 쌓인 업데이트를 전부 확인 처리(offset=최신+1)만 하고 보내지 않는다.
-    func establishTelegramBaseline() async {
+    /// - Returns: 기준선을 잡았으면 true. 실패는 상태 DB 에 오류로 남긴다(물러서기는 부른 쪽이 정한다).
+    @discardableResult
+    func establishTelegramBaseline() async -> Bool {
         let updates: [TGUpdate]
         do {
             updates = try await telegram.getUpdates(offset: 0, timeout: 0)
         } catch {
-            log("텔레그램 기준선 설정 실패, 다음 틱에 재시도: \(error)")
-            return
+            telegramFailures += 1
+            state.recordError(Self.explainTelegramFailure(error), at: clock.now)
+            log("텔레그램 기준선 설정 실패, 다음 틱에 재시도: \(Self.explainTelegramFailure(error))")
+            return false
         }
         let nextOffset = (updates.map(\.update_id).max() ?? -1) + 1
         do {
             try state.setTGOffset(nextOffset)
         } catch {
             log("텔레그램 기준선 저장 실패, 다음 틱에 재시도: \(error)")
-            return
+            return false
         }
+        noteTelegramOK()
         log("텔레그램 기준선 설정, 켜기 전 메시지 \(updates.count)건 건너뜀 offset=\(nextOffset)")
         if !updates.isEmpty {
             _ = try? await telegram.sendMessage("ℹ️ 켜기 전 메시지 \(updates.count)개는 보내지 않았습니다.")
         }
+        return true
     }
 
     public var isHalted: Bool { state.haltReason != nil }
@@ -146,10 +164,45 @@ public final class Relay {
 
     // MARK: - 루프
 
+    /// 취소될 때까지 돈다. 취소는 await 지점에서만 반영되므로 이미 시작한 발송은 끝나고 outbox 에 기록된다.
     public func runForever() async {
-        while true {
+        while !Task.isCancelled {
             await tick()
+            await Task.yield()
         }
+    }
+
+    /// 일꾼 상태를 상태 DB 에 남긴다(`bluehop status` 가 읽는다). 정상 신호는 10초에 한 번만 쓴다.
+    func noteTelegramOK() {
+        if telegramFailures > 0 {
+            telegramFailures = 0
+            state.recordError(nil, at: clock.now)
+        }
+        if clock.now - lastHealthWrite >= 10 {
+            lastHealthWrite = clock.now
+            state.markTelegramOK(clock.now)
+        }
+    }
+
+    /// getUpdates 실패: 그 일꾼만 3초부터 두 배씩 최대 60초까지 쉰다(다른 매핑은 영향 없음).
+    func noteTelegramFailure(_ error: Error) async {
+        telegramFailures += 1
+        let why = Self.explainTelegramFailure(error)
+        state.recordError(why, at: clock.now)
+        log("getUpdates 실패(\(telegramFailures)회): \(why)")
+        await clock.sleep(seconds: Self.telegramBackoff(failures: telegramFailures))
+    }
+
+    static func telegramBackoff(failures: Int) -> Double {
+        min(60, 3 * pow(2, Double(max(0, failures - 1))))
+    }
+
+    static func explainTelegramFailure(_ error: Error) -> String {
+        if case TelegramError.api(_, let code, _) = error {
+            if code == 401 || code == 404 { return "\(error) — 봇 토큰이 거부됨(폐기·오타). 새 토큰으로 매핑을 다시 추가" }
+            if code == 409 { return "\(error) — 같은 봇 토큰으로 다른 곳이 getUpdates 중(웹훅 또는 다른 프로그램)" }
+        }
+        return "\(error)"
     }
 
     public func tick() async {
@@ -170,7 +223,9 @@ public final class Relay {
     func pollTelegram() async {
         // start() 에서 기준선 설정이 네트워크 오류로 실패했을 수 있다 — 여기서 재시도(이 턴은 보내지 않음).
         if !state.hasTGBaseline {
-            await establishTelegramBaseline()
+            if !(await establishTelegramBaseline()), !Task.isCancelled {
+                await clock.sleep(seconds: Self.telegramBackoff(failures: telegramFailures))
+            }
             return
         }
         let updates: [TGUpdate]
@@ -179,10 +234,11 @@ public final class Relay {
         } catch TelegramError.retryAfter(let s) {
             await clock.sleep(seconds: Double(s)); return
         } catch {
-            log("getUpdates 실패: \(error)")
-            await clock.sleep(seconds: 3)
+            if Task.isCancelled { return }
+            await noteTelegramFailure(error)
             return
         }
+        noteTelegramOK()
         for u in updates {
             await handle(update: u)
             // 처리 뒤에 offset 을 올린다. 처리 도중 죽어도 outbox 가 같은 메시지 재발송을 막는다.
@@ -449,6 +505,16 @@ public final class Relay {
     /// 발송 결과가 아직 확인되지 않은(sending·sent) 메시지의 폴더는 시간이 지나도 남겨 둔다.
     func cleanupOutboxFiles(olderThan age: TimeInterval = 3600) {
         let fm = FileManager.default
+        if let root = options.legacyOutboxRoot, let names = try? fm.contentsOfDirectory(atPath: root.path) {
+            // 0.4.x 가 남긴 숫자 이름 폴더. 매핑 id 는 글자로 시작하므로 매핑 폴더와 겹치지 않는다.
+            for name in names where Int64(name) != nil {
+                let url = root.appendingPathComponent(name)
+                if let m = (try? fm.attributesOfItem(atPath: url.path))?[.modificationDate] as? Date,
+                   Date().timeIntervalSince(m) > age {
+                    try? fm.removeItem(at: url)
+                }
+            }
+        }
         guard let names = try? fm.contentsOfDirectory(atPath: options.outboxDir.path) else { return }
         for name in names where Int64(name) != nil || name.hasPrefix(OutboxStaging.diagPrefix) {
             if let id = Int64(name), Self.isAwaitingResult((try? state.outbox(tgMessageID: id)) ?? []) { continue }
@@ -471,6 +537,13 @@ public final class Relay {
     func pollIMessage() async {
         guard let chat else { return }
         let cursor = state.imsgCursor ?? 0
+        if clock.now - lastScanWrite >= 10 {
+            lastScanWrite = clock.now
+            state.markIMessageScan(clock.now)
+        }
+        // 공용 감시가 "이 대화엔 커서 뒤 행이 없다"고 하면 행을 읽지 않는다. 기다리는 행(첨부·메아리 유예)이 있으면
+        // 그 행이 커서 뒤에 있으므로 여기서 걸러지지 않는다.
+        if let activity, let latest = activity.latestRowID(chat: chat.rowid), latest <= cursor { return }
         let messages: [IMMessage]
         do {
             messages = try chatDB.messages(after: cursor, chat: chat)
