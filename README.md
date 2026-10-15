@@ -191,7 +191,7 @@ Safety rules, per mapping: the relay sends at most 20 messages a minute to Teleg
 
 ## Security model in short
 
-No listening sockets or web server. One outbound host, `https://api.telegram.org`, hard-coded and not configurable. chat.db is opened read-only (`SQLITE_OPEN_READONLY` plus `query_only`), and every query is limited to the configured chats. Only the signed binary gets Full Disk Access; no Python, shell, or plugins. osascript gets a fixed script with values as argv. Config, state and token files must be 0600. Logs contain row ids, counts and kinds, never message text, phone numbers, or the token. Residual risk: there is no bluehop-operated server, but Telegram bot chats are not end-to-end encrypted, so relayed messages are stored on Telegram's servers. Details: [SECURITY.md](SECURITY.md).
+No listening sockets or web server. One outbound host, `https://api.telegram.org`, hard-coded and not configurable. chat.db is opened read-only (`SQLITE_OPEN_READONLY` plus `query_only`), and every query is limited to the configured chats. Only the signed binary gets Full Disk Access; no Python, shell, or plugins. osascript gets a fixed script with values as argv. Config, state and token files must be 0600. Both logs (`~/Library/Logs/bluehop.log` and the structured `bluehop-events.jsonl`, see "Logs" below) contain row ids, counts, kinds and durations, never message text, phone numbers, or the token, except for a couple of events that can carry text when a debug-only opt-in (`BLUEHOP_LOG_BODIES=1`) is explicitly set. Residual risk: there is no bluehop-operated server, but Telegram bot chats are not end-to-end encrypted, so relayed messages are stored on Telegram's servers. Details: [SECURITY.md](SECURITY.md).
 
 ## Operate
 
@@ -202,8 +202,15 @@ No listening sockets or web server. One outbound host, `https://api.telegram.org
 | Add, pause, remove a chat | `bluehop mapping add`, `bluehop mapping pause ID`, `bluehop mapping remove ID` |
 | Restart | `launchctl kickstart -k "gui/$(id -u)/dev.kanziw.bluehop"` |
 | Update | `git pull && bash scripts/install.sh` |
-| Logs | `~/Library/Logs/bluehop.log` (no message text) |
+| Logs | `~/Library/Logs/bluehop.log` (human-readable) and `~/Library/Logs/bluehop-events.jsonl` (structured, see below) |
+| Bundle logs for a bug report | `bash scripts/collect-logs.sh` (read-only; prints the path to a `.tar.gz`) |
 | Uninstall | `bash scripts/uninstall.sh` (keeps config and state) or `bash scripts/uninstall.sh --purge` (also removes config, state and every mapping's Keychain token) |
+
+### Logs
+
+`bluehop.log` is the human-readable line the LaunchAgent redirects (one line per notable thing, no rotation — macOS/launchd does not roll it). `bluehop-events.jsonl` is a second, structured log: one JSON object per line (`ts`, `level`, `mapping`, `event`, plus whatever correlation ids apply — a Telegram update/message id, a chat.db row id), covering every step of a request: received, send start/end (with its duration in `ms`), echo wait/match/give-up, warning sent, reaction/attachment handling, `getUpdates` errors and their retry backoff, and start/halt/resume. It rotates itself by size (10 MB × 5 files by default, oldest dropped) — nothing else needs to logrotate it. Both paths (and the active level) are printed by `bluehop status` and `bluehop doctor`.
+
+Levels are `info` (default) and `debug`. Set `BLUEHOP_LOG_LEVEL=debug` in the LaunchAgent's `EnvironmentVariables` for more detail (still no message bodies). Message text, phone numbers, Apple IDs and the bot token are never written at any level by default — only lengths, hashes, counts and durations. A couple of "received" events can additionally carry the actual text, but only when `BLUEHOP_LOG_BODIES=1` is set *together with* `debug`; turn it on for a short, deliberate debugging window and back off afterward, and strip it before sharing the log (`scripts/collect-logs.sh` does this for you, as a second line of defense, by dropping any line with a `"text"` field).
 
 ## Develop
 

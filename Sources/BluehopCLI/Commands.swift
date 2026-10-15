@@ -58,6 +58,10 @@ func cmdRun(_ ctx: Context) async throws -> ExitCode {
     let activityDB = try ChatDB(path: Paths.chatDB, attachmentsRoot: Paths.attachmentsRoot)
     let activity = ChatActivity(chatDB: activityDB)
     let claims = BotClaims()
+    // 구조화(JSON Lines) 사건 로그 — 모든 매핑이 한 파일에 쓰고 `mapping` 필드로 구분한다.
+    // `BLUEHOP_LOG_LEVEL=debug` 로 자세히, `BLUEHOP_LOG_BODIES=1` 를 (debug 와) 함께 줘야 본문을 싣는다.
+    let events = EventLog(file: RotatingFileLog(path: Paths.eventLogFile), level: EventLog.levelFromEnvironment(),
+                          logBodies: EventLog.bodiesEnabledFromEnvironment())
     let source = Supervisor.Source(
         load: { try ConfigLoader.load(path: configPath) },
         stamp: {
@@ -80,7 +84,7 @@ func cmdRun(_ ctx: Context) async throws -> ExitCode {
                 let tg = TelegramClient(token: token, chatID: m.telegram.chatId)
                 return Relay(chatDB: chatDB, state: state, telegram: tg, sender: AppleScriptSender(),
                              converter: SystemMediaConverter(), clock: SystemClock(), options: MappingOptions.make(m),
-                             activity: activity, log: { log("[\(m.id)] \($0)") })
+                             activity: activity, events: events, log: { log("[\(m.id)] \($0)") })
             },
             recordFailure: { id, error in
                 guard let s = try? StateStore(path: statePath, mappingID: id) else { return }
@@ -100,7 +104,7 @@ func cmdRun(_ ctx: Context) async throws -> ExitCode {
             log: { log("[\(m.id)] \($0)") })
     }, log: log)
     let cfg = try ConfigLoader.load(path: configPath)
-    log("시작 v\(version) 매핑 \(cfg.mappings.count)개(켜짐 \(cfg.enabledMappings.count)개)")
+    log("시작 v\(version) 매핑 \(cfg.mappings.count)개(켜짐 \(cfg.enabledMappings.count)개) 사건 로그=\(Paths.eventLogFile)(\(EventLog.levelFromEnvironment()))")
     try await supervisor.runForever()
     return .ok
 }
@@ -421,7 +425,8 @@ func doctorReport(_ ctx: Context, only: String?, messages: Bool, telegram: Bool)
         results.append(["id": m.id, "enabled": m.enabled, "ok": ok, "checks": checks, "codes": DoctorCheck.failingCodes(checks)])
     }
     return ["schemaVersion": doctorSchemaVersion, "ok": allOK, "config": configCheck, "mappings": results,
-            "codes": DoctorCheck.failingCodes(allChecks)]
+            "codes": DoctorCheck.failingCodes(allChecks),
+            "logs": ["text": Paths.textLogFile, "events": Paths.eventLogFile, "level": "\(EventLog.levelFromEnvironment())"] as [String: Any]]
 }
 
 func printDoctor(_ r: [String: Any?], lang: OutputLanguage = .ko) {
@@ -438,6 +443,7 @@ func printDoctor(_ r: [String: Any?], lang: OutputLanguage = .ko) {
         say("[\(m["id"] as? String ?? "?")]\(paused)")
         for c in list(m["checks"]) { say("  " + DoctorCheck.line(c, lang: lang)) }
     }
+    say(StatusText.logsLine(lang: lang))
 }
 
 // MARK: - status
@@ -461,10 +467,12 @@ func cmdStatus(_ ctx: Context) async throws -> ExitCode {
             "schemaVersion": statusSchemaVersion,
             "service": ["label": Paths.launchAgentLabel, "loaded": service.loaded, "running": service.running, "pid": service.pid] as [String: Any?],
             "mappings": rows.map { $0.json(now: now) },
+            "logs": ["text": Paths.textLogFile, "events": Paths.eventLogFile, "level": "\(EventLog.levelFromEnvironment())"] as [String: Any],
         ] as [String: Any?]))
         return .ok
     }
     for line in StatusText.lines(service: service, rows: rows, now: now, lang: lang) { say(line) }
+    say(StatusText.logsLine(lang: lang))
     return .ok
 }
 

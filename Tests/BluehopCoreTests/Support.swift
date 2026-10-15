@@ -275,6 +275,8 @@ final class MockTelegram: URLProtocol {
 final class FakeSender: MessagesSender {
     var sent: [(kind: String, payload: String, chat: String)] = []
     var failNext = false
+    /// osascript 가 시간 제한으로 강제 종료된 것처럼 던진다(전달 여부를 알 수 없는 애매한 실패).
+    var failNextWithTimeout = false
     /// 보낼 때 fixture chat.db 에 메아리(내 메시지) 행을 써 넣는다 — 실제 메시지 앱 동작 흉내.
     var echoInto: FixtureChatDB?
     /// 메아리를 적을 fixture 대화 rowid(매핑마다 다른 대화).
@@ -287,6 +289,7 @@ final class FakeSender: MessagesSender {
     var echoAsAttributedBody = false
 
     func sendText(_ text: String, chatGuid: String) throws {
+        if failNextWithTimeout { failNextWithTimeout = false; throw SendError("가짜 응답 없음", isAmbiguousTimeout: true) }
         if failNext { failNext = false; throw SendError("가짜 실패") }
         sent.append(("text", text, chatGuid))
         let written = echoTextTransform?(text) ?? text
@@ -302,6 +305,7 @@ final class FakeSender: MessagesSender {
     var sentFileModes: [Int] = []
 
     func sendFile(_ path: String, chatGuid: String) throws {
+        if failNextWithTimeout { failNextWithTimeout = false; throw SendError("가짜 응답 없음", isAmbiguousTimeout: true) }
         if failNext { failNext = false; throw SendError("가짜 실패") }
         sent.append(("file", path, chatGuid))
         let dirMode = (try? FileManager.default.attributesOfItem(atPath: (path as NSString).deletingLastPathComponent)[.posixPermissions] as? Int) ?? -1
@@ -363,7 +367,7 @@ struct Harness {
 
     static func make(fixture: FixtureChatDB? = nil, statePath: String? = nil, mappingID: String = "default",
                      token: String = Harness.token, chatGuid: String = FixtureChatDB.chatGuid, handle: String = FixtureChatDB.handle,
-                     activity: ChatActivity? = nil, resetMock: Bool = true,
+                     activity: ChatActivity? = nil, resetMock: Bool = true, events: EventLog? = nil,
                      configure: (inout Relay.Options) -> Void = { _ in }) throws -> Harness {
         if resetMock { MockTelegram.reset() }
         let fx = try fixture ?? FixtureChatDB()
@@ -385,7 +389,7 @@ struct Harness {
                                 base: URL(string: "https://mock.telegram.test")!, session: MockTelegram.session())
         let logs = LogBox()
         let relay = Relay(chatDB: try fx.reader(), state: state, telegram: tg, sender: sender,
-                          converter: conv, clock: clock, options: opts, activity: activity, log: { logs.append($0) })
+                          converter: conv, clock: clock, options: opts, activity: activity, events: events, log: { logs.append($0) })
         return Harness(logs: logs, fixture: fx, state: state, statePath: sp, sender: sender, converter: conv, clock: clock, relay: relay, workDir: work)
     }
 

@@ -36,7 +36,8 @@ final class ScriptArgsTests: XCTestCase {
         XCTAssertEqual(made, [], "\(what): 홈에 생긴 파일", file: file, line: line)
     }
 
-    static let scripts = ["install.sh", "uninstall.sh", "agent-run.sh", "build-release.sh", "check.sh", "setup-dev.sh", "publish-site.sh"]
+    static let scripts = ["install.sh", "uninstall.sh", "agent-run.sh", "build-release.sh", "check.sh", "setup-dev.sh", "publish-site.sh",
+                          "collect-logs.sh"]
 
     func testHelpExitsZeroBeforeDoingAnything() throws {
         for s in Self.scripts {

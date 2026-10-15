@@ -212,6 +212,20 @@ final class AppleScriptTests: XCTestCase {
         XCTAssertFalse(AppleScriptSender.script.contains("\\("))
         XCTAssertTrue(AppleScriptSender.script.contains("item 3 of argv"))
     }
+
+    /// `AppleScriptSender` 가 "시간 제한으로 강제 종료"를 판정하는 유일한 신호(status=-9, stderr="timeout")가
+    /// `ProcessRunner` 에서 실제로 그 모양대로 나오는지 — 메시지 앱·osascript 없이, 안전하게 느린 명령으로 확인.
+    func testProcessRunnerTimeoutShapeMatchesWhatSenderChecksFor() throws {
+        let r = try ProcessRunner.run("/bin/sleep", ["2"], timeout: 0.2)
+        XCTAssertEqual(r.status, -9)
+        XCTAssertEqual(r.stderr, "timeout")
+    }
+
+    /// 정상 종료는 저 모양과 겹치지 않는다 — "시간 제한"으로 잘못 분류될 수 없다.
+    func testProcessRunnerNormalFailureIsNotMistakenForTimeout() throws {
+        let r = try ProcessRunner.run("/usr/bin/false", [], timeout: 5)
+        XCTAssertNotEqual(r.status, -9)
+    }
 }
 
 final class SafetyUnitTests: XCTestCase {

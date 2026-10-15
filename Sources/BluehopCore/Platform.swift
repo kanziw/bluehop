@@ -43,7 +43,13 @@ public enum ProcessRunner {
 
 public struct SendError: Error, CustomStringConvertible {
     public var description: String
-    public init(_ d: String) { description = d }
+    /// true 면 osascript 가 시간 제한으로 강제 종료된 경우 — 메시지 앱에 전달됐는지 알 수 없다
+    /// (Apple Event 가 이미 전달된 뒤 kill 됐을 수 있음). 다른 실패(0 이 아닌 종료 코드에 오류가 또렷함)는 false.
+    public var isAmbiguousTimeout: Bool
+    public init(_ d: String, isAmbiguousTimeout: Bool = false) {
+        description = d
+        self.isAmbiguousTimeout = isAmbiguousTimeout
+    }
 }
 
 public protocol MessagesSender: AnyObject {
@@ -82,9 +88,19 @@ public final class AppleScriptSender: MessagesSender {
 
     public init() {}
 
+    /// osascript 한 번을 기다리는 최대 시간. 메시지 앱이 응답할 때까지(모달 대화상자가 떠 있거나
+    /// 시스템이 바쁠 때 포함) 막힐 수 있어 넉넉히 둔다 — 짧추면 늦은 정상 응답까지 시간 제한으로 끊긴다.
+    public static let sendTimeout: TimeInterval = 30
+
     private func run(_ mode: String, _ chatGuid: String, _ payload: String) throws -> String {
-        let r = try ProcessRunner.run("/usr/bin/osascript", ["-e", Self.script, mode, chatGuid, payload], timeout: 30)
+        let r = try ProcessRunner.run("/usr/bin/osascript", ["-e", Self.script, mode, chatGuid, payload], timeout: Self.sendTimeout)
         guard r.status == 0 else {
+            // ProcessRunner 는 시간 제한에 걸리면 status=-9, stderr="timeout" 을 돌려준다(실제 종료 코드가
+            // 아니라 우리가 강제로 만든 값) — osascript 를 죽였을 뿐 메시지 앱이 이미 받은 요청을 끝냈는지는
+            // 모른다. 그 밖의 0 이 아닌 종료는 osascript·AppleScript 가 또렷하게 돌려준 실패다.
+            if r.status == -9, r.stderr == "timeout" {
+                throw SendError("osascript 응답 없음(\(Int(Self.sendTimeout))초 제한) — 메시지 앱에 전달됐는지 확인되지 않음", isAmbiguousTimeout: true)
+            }
             // stderr 에는 본문이 섞이지 않는다(스크립트 오류 번호·설명). 길이만 제한해 남긴다.
             throw SendError("osascript 실패(\(r.status)): \(r.stderr.prefix(200).trimmingCharacters(in: .whitespacesAndNewlines))")
         }

@@ -229,6 +229,15 @@ final class CLIBinaryTests: XCTestCase {
         let row = try XCTUnwrap((sj["mappings"] as? [[String: Any]])?.first)
         XCTAssertTrue(row.keys.contains("lastErrorCode"))
         XCTAssertTrue(row["lastErrorCode"] is NSNull)
+        // 로그 파일 위치는 status --json 과 사람이 읽는 줄 모두에 보인다(둘 다 같은 경로를 가리킨다).
+        // `run()` 이 격리된 HOME 으로 바꿔 돌리므로, 기대값도 그 HOME 기준으로 계산한다.
+        let expectedEventLog = home.appendingPathComponent("Library/Logs/bluehop-events.jsonl").path
+        let logs = try XCTUnwrap(sj["logs"] as? [String: Any])
+        XCTAssertEqual(logs["text"] as? String, home.appendingPathComponent("Library/Logs/bluehop.log").path)
+        XCTAssertEqual(logs["events"] as? String, expectedEventLog)
+        XCTAssertTrue(st.stdout.contains(expectedEventLog), st.stdout)
+        let dj = try json(try run(["doctor", "--json", "--config", cfg]))
+        XCTAssertEqual((dj["logs"] as? [String: Any])?["events"] as? String, expectedEventLog)
         // 모르는 언어는 사용법 오류
         XCTAssertEqual(try run(["doctor", "--lang", "fr", "--config", cfg]).status, 2)
         XCTAssertEqual(try run(["status", "--config", cfg], env: ["BLUEHOP_LANG": "fr"]).status, 2)

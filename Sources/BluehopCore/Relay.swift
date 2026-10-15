@@ -23,6 +23,11 @@ public final class Relay {
         /// 확인 안 된 텔레그램 발송이 남아 있을 때, 새로 본 `is_from_me` 행을 "직접 보낸 글"로
         /// 단정하기 전에 메아리 맞춤을 다시 시도할 수 있게 기다리는 최대 초(사고 2026-10-14 재발 2건).
         public var echoGraceSeconds: Double = 5
+        /// osascript 가 시간 제한으로 강제 종료돼 전달 여부를 알 수 없을 때(`OutboxStatus.ambiguousTimeout`),
+        /// 곧바로 실패로 알리지 않고 chat.db 메아리 맞춤을 계속 시도하는 최대 초. `confirmTimeout` 과 기본값을
+        /// 맞춘다 — osascript 가 분명히 성공했을 때 받아들이는 노출(같은 글을 사람이 직접 보내면 메아리로
+        /// 잘못 삼켜질 수 있는 창)과 같은 크기만 추가로 받아들인다는 뜻이다.
+        public var sendTimeoutGrace: Double = 60
         /// 첨부를 둔 폴더가 메시지 앱(샌드박스)이 읽을 수 없는 곳이면 보내지 않고 ⚠️ 로 알린다.
         /// 보내 봐야 chat.db 에 error=25 로 실패가 남을 뿐이다(사고 2026-10-14). 테스트는 임시 폴더를 쓰므로 끈다.
         public var requireMessagesReadableOutbox = true
@@ -49,6 +54,9 @@ public final class Relay {
     let clock: Clock
     public var options: Options
     let log: (String) -> Void
+    /// 구조화(JSON Lines) 사건 로그 — 사람이 읽는 `log` 와 별도, 디버깅용 상관 ID(요청 id·rowid)를 싣는다.
+    /// nil 이면(기본값, 대부분의 테스트) 아무것도 적지 않는다.
+    let events: EventLog?
 
     let toTGLimiter: RateLimiter
     let toIMLimiter: RateLimiter
@@ -69,7 +77,7 @@ public final class Relay {
 
     public init(chatDB: ChatDB, state: StateStore, telegram: TelegramClient, sender: MessagesSender,
                 converter: MediaConverter, clock: Clock, options: Options, activity: ChatActivity? = nil,
-                log: @escaping (String) -> Void = { _ in }) {
+                events: EventLog? = nil, log: @escaping (String) -> Void = { _ in }) {
         self.activity = activity
         self.chatDB = chatDB
         self.state = state
@@ -78,6 +86,7 @@ public final class Relay {
         self.converter = converter
         self.clock = clock
         self.options = options
+        self.events = events
         self.log = log
         toTGLimiter = RateLimiter(perMinute: options.limits.toTelegramPerMinute, clock: clock)
         toIMLimiter = RateLimiter(perMinute: options.limits.toIMessagePerMinute, clock: clock)
@@ -85,12 +94,22 @@ public final class Relay {
         toIMBreaker = SafetyBreaker(limit: options.limits.toIMessagePerWindow, windowSeconds: options.limits.windowSeconds, clock: clock)
     }
 
+    /// 구조화 사건 로그 한 줄 — 매핑 id 는 자동으로 싣는다. `events` 가 nil 이면 아무 일도 하지 않는다.
+    func logEvent(_ level: LogLevel, _ event: String, _ fields: [String: LogValue] = [:]) {
+        events?.log(level, mapping: state.mappingID, event: event, fields)
+    }
+
+    /// 본문을 실어도 되는가(`debug` 레벨이면서 `BLUEHOP_LOG_BODIES` 를 명시적으로 켰을 때만) — 이 둘을
+    /// 함께 만족할 때만, 아래에서 고른 몇 자리(수신한 글)에 한해 본문 필드를 덧붙인다.
+    var capturesBodies: Bool { events?.capturesBodies ?? false }
+
     // MARK: - 시작
 
     /// 대화를 검증하고 커서 기준선을 잡는다. 밀린 메시지가 많으면 정지 상태로 시작한다.
     public func start() async throws {
         let chat = try chatDB.resolveChat(guid: options.chatGuid, expectedHandle: options.handle)
         self.chat = chat
+        logEvent(.info, "relay_start", ["chat_rowid": .int(chat.rowid)])
         activity?.watch(chat.rowid)
         for dir in [options.outboxDir, options.tmpDir] {
             try ConfigLoader.ensurePrivateDir(dir.path)
@@ -150,6 +169,7 @@ public final class Relay {
         guard state.haltReason == nil else { return }
         try? state.setHalted(reason)
         log("안전 정지: \(reason)")
+        logEvent(.info, "relay_halt", ["reason": .string(reason)])
         _ = try? await telegram.sendMessage("⏸ bluehop 안전 정지\n\(reason)\n재개: /resume")
     }
 
@@ -160,6 +180,7 @@ public final class Relay {
         }
         try state.setHalted(nil)
         log("재개 skipBacklog=\(skipBacklog)")
+        logEvent(.info, "relay_resume", ["skip_backlog": .bool(skipBacklog)])
     }
 
     // MARK: - 루프
@@ -188,9 +209,12 @@ public final class Relay {
     func noteTelegramFailure(_ error: Error) async {
         telegramFailures += 1
         let why = Self.explainTelegramFailure(error)
+        let backoff = Self.telegramBackoff(failures: telegramFailures)
         state.recordError(why, code: ErrorCodes.of(error), at: clock.now)
         log("getUpdates 실패(\(telegramFailures)회): \(why)")
-        await clock.sleep(seconds: Self.telegramBackoff(failures: telegramFailures))
+        logEvent(.info, "tg_poll_error", ["attempt": .int(Int64(telegramFailures)), "code": .string(ErrorCodes.of(error)),
+                                          "backoff_seconds": .double(backoff)])
+        await clock.sleep(seconds: backoff)
     }
 
     static func telegramBackoff(failures: Int) -> Double {
@@ -268,6 +292,11 @@ public final class Relay {
 
     func handle(message m: TGMessage) async {
         let rawText = m.text ?? m.caption ?? ""
+        var receivedFields: [String: LogValue] = ["tg_message_id": .int(m.message_id), "text_len": .int(Int64(rawText.count)),
+                                                   "has_attachment": .bool(m.photo != nil || m.voice != nil || m.video_note != nil
+                                                                           || m.audio != nil || m.document != nil || m.video != nil || m.animation != nil)]
+        if capturesBodies { receivedFields["text"] = .string(rawText) }
+        logEvent(.info, "tg_message_received", receivedFields)
         if m.text != nil, rawText.hasPrefix("/"), !rawText.hasPrefix("//") {
             await handle(command: rawText, messageID: m.message_id)
             return
@@ -312,9 +341,13 @@ public final class Relay {
         var files: [URL] = []
         do {
             files = try await stageAttachments(of: m)
+            if !files.isEmpty {
+                logEvent(.info, "attachment_relayed", ["direction": .string("tg_to_im"), "tg_message_id": .int(m.message_id), "count": .int(Int64(files.count))])
+            }
         } catch {
             try? recordRejected(m.message_id, "첨부 받기 실패")
             _ = try? await telegram.sendMessage("⚠️ 첨부를 받지 못해 아무것도 보내지 않았습니다: \(error)", replyTo: m.message_id)
+            logEvent(.info, "attachment_relay_failed", ["direction": .string("tg_to_im"), "tg_message_id": .int(m.message_id)])
             return
         }
         guard !files.isEmpty || !text.isEmpty else { return }
@@ -354,6 +387,8 @@ public final class Relay {
                 continue
             }
             await toIMLimiter.acquire()
+            let t0 = clock.now
+            logEvent(.debug, "im_send_start", ["tg_message_id": .int(m.message_id), "part": .int(Int64(i)), "kind": .string(p.kind)])
             do {
                 if p.kind == "file" {
                     try sender.sendFile(p.payload, chatGuid: options.chatGuid)
@@ -362,10 +397,23 @@ public final class Relay {
                 }
                 try? state.updateOutbox(tgMessageID: m.message_id, part: i, status: .sent)
                 log("iMessage 로 보냄 tg=\(m.message_id) part=\(i) kind=\(p.kind)")
+                logEvent(.info, "im_send_ok", ["tg_message_id": .int(m.message_id), "part": .int(Int64(i)), "kind": .string(p.kind),
+                                               "ms": .int(Int64((clock.now - t0) * 1000))])
+            } catch let error as SendError where error.isAmbiguousTimeout {
+                // 메시지 앱에 전달됐는지 확인 못 함 — 곧바로 실패로 단정하지 않고 매칭 키를 그대로 둔 채
+                // sendTimeoutGrace 동안 메아리 맞춤을 계속한다(남은 부분은 이 발송이 불확실한 채로 더
+                // 보내지 않는다 — 반쪽 발송 방지는 그대로 지킨다).
+                stop = "이전 부분 응답 없음(확인 안 됨)"
+                try? state.updateOutbox(tgMessageID: m.message_id, part: i, status: .ambiguousTimeout, detail: "\(error)")
+                log("iMessage 보내기 응답 없음(불확실) tg=\(m.message_id) part=\(i): \(error)")
+                logEvent(.info, "im_send_ambiguous_timeout", ["tg_message_id": .int(m.message_id), "part": .int(Int64(i)), "kind": .string(p.kind),
+                                                               "ms": .int(Int64((clock.now - t0) * 1000)), "grace_seconds": .double(options.sendTimeoutGrace)])
             } catch {
                 stop = "메시지 앱 보내기 실패"
                 try? state.updateOutbox(tgMessageID: m.message_id, part: i, status: .failed, detail: "\(error)", clearKey: true)
                 log("iMessage 보내기 실패 tg=\(m.message_id) part=\(i): \(error)")
+                logEvent(.info, "im_send_failed", ["tg_message_id": .int(m.message_id), "part": .int(Int64(i)), "kind": .string(p.kind),
+                                                    "ms": .int(Int64((clock.now - t0) * 1000)), "detail": .string("\(error)".prefix(200).description)])
             }
         }
     }
@@ -442,6 +490,7 @@ public final class Relay {
         guard let emoji = added.first else { return }  // 취소는 iMessage 에서 되돌릴 수 없어 무시
         let syntheticID = -updateID  // 반응에는 message_id 가 없어 update_id 로 멱등 키를 만든다
         if (try? state.hasOutbox(tgMessageID: syntheticID)) ?? true { return }
+        logEvent(.info, "tg_reaction_received", ["tg_message_id": .int(r.message_id), "tg_update_id": .int(updateID)])
         var quoted = ""
         if let guid = try? state.imsgGuid(forTG: r.message_id), let chat,
            let original = try? chatDB.message(guid: guid, chat: chat) {
@@ -473,18 +522,28 @@ public final class Relay {
         let now = clock.now
         for id in ids {
             guard var entries = try? state.outbox(tgMessageID: id), !entries.isEmpty else { continue }
-            for (i, e) in entries.enumerated() where now - e.createdAt > options.confirmTimeout {
-                if e.status == .sent {
+            for (i, e) in entries.enumerated() {
+                let age = now - e.createdAt
+                switch e.status {
+                case .sent where age > options.confirmTimeout:
                     try? state.updateOutbox(tgMessageID: id, part: e.part, status: .failed,
                                             detail: "\(Int(options.confirmTimeout))초 안에 메시지 앱 기록에서 확인되지 않음")
                     entries[i].status = .failed
-                } else if e.status == .sending {
+                    logEvent(.info, "echo_giveup", ["tg_message_id": .int(id), "part": .int(Int64(e.part)), "from_status": .string("sent")])
+                case .sending where age > options.confirmTimeout:
                     try? state.updateOutbox(tgMessageID: id, part: e.part, status: .failed,
                                             detail: "보내는 도중 중계기가 멈춤")
                     entries[i].status = .failed
+                    logEvent(.info, "echo_giveup", ["tg_message_id": .int(id), "part": .int(Int64(e.part)), "from_status": .string("sending")])
+                case .ambiguousTimeout where age > options.sendTimeoutGrace:
+                    try? state.updateOutbox(tgMessageID: id, part: e.part, status: .failed,
+                                            detail: "\(Int(options.sendTimeoutGrace))초 안에 메시지 앱 응답을 확인하지 못함")
+                    entries[i].status = .failed
+                    logEvent(.info, "echo_giveup", ["tg_message_id": .int(id), "part": .int(Int64(e.part)), "from_status": .string("ambiguousTimeout")])
+                default: break
                 }
             }
-            let undecided = entries.contains { $0.status == .sending || $0.status == .sent }
+            let undecided = entries.contains { $0.status == .sending || $0.status == .sent || $0.status == .ambiguousTimeout }
             if undecided { continue }
             let failed = (try? state.outbox(tgMessageID: id))?.filter { $0.status == .failed } ?? []
             if !failed.isEmpty {
@@ -493,6 +552,7 @@ public final class Relay {
                 let what = id > 0 ? "이 메시지" : "반응"
                 do {
                     try await telegram.sendMessage("⚠️ \(what)를 iMessage 로 보내지 못했거나 확인하지 못했습니다: \(why)\n자동으로 다시 보내지 않았습니다. 필요하면 iPhone 에서 확인 후 다시 보내 주세요.", replyTo: target)
+                    logEvent(.info, "warn_sent", ["tg_message_id": .int(id)])
                 } catch {
                     continue  // 알림을 못 보냈으면 다음 루프에 다시 시도
                 }
@@ -527,7 +587,7 @@ public final class Relay {
     }
 
     static func isAwaitingResult(_ entries: [OutboxEntry]) -> Bool {
-        entries.contains { $0.status == .sending || $0.status == .sent }
+        entries.contains { $0.status == .sending || $0.status == .sent || $0.status == .ambiguousTimeout }
     }
 
     // MARK: - iMessage → 텔레그램
@@ -577,6 +637,9 @@ public final class Relay {
     }
 
     func relay(_ m: IMMessage) async throws -> Outcome {
+        var rowFields: [String: LogValue] = ["imsg_rowid": .int(m.rowid), "is_from_me": .bool(m.isFromMe), "text_len": .int(Int64(m.text.count))]
+        if capturesBodies { rowFields["text"] = .string(m.text) }
+        logEvent(.debug, "imsg_row_received", rowFields)
         if m.isRetracted || m.itemType != 0 { return .done }
         if m.isReaction { return try await relayReaction(m) }
         if m.associatedType != 0 { return .done }
@@ -587,8 +650,12 @@ public final class Relay {
             // 곧바로 "직접 보낸 글"로 미러하지 않고 잠깐 기다려 메아리 맞춤에 재시도 기회를 준다.
             // 그래도 끝내 안 맞으면(정말 iPhone 에서 보낸 다른 글) 유예가 끝난 뒤 정상적으로 미러한다.
             let since = try state.pendingSince(rowid: m.rowid, now: clock.now)
-            if clock.now - since < options.echoGraceSeconds { return .wait }
+            if clock.now - since < options.echoGraceSeconds {
+                logEvent(.debug, "echo_wait", ["imsg_rowid": .int(m.rowid), "waited_seconds": .double(clock.now - since)])
+                return .wait
+            }
             logEchoMiss(m)
+            logEvent(.info, "echo_unmatched", ["imsg_rowid": .int(m.rowid)])
         }
         if m.isFromMe && !options.mirrorOwnMessages { return .done }
 
@@ -596,7 +663,10 @@ public final class Relay {
         let missing = m.attachments.filter { $0.path == nil }
         if !missing.isEmpty {
             let since = try state.pendingSince(rowid: m.rowid, now: clock.now)
-            if clock.now - since < options.attachmentWait { return .wait }
+            if clock.now - since < options.attachmentWait {
+                logEvent(.debug, "attachment_wait", ["imsg_rowid": .int(m.rowid), "waited_seconds": .double(clock.now - since)])
+                return .wait
+            }
         }
 
         var replyTo: Int64?
@@ -643,6 +713,8 @@ public final class Relay {
                 try state.saveMapping(imsgGuid: m.guid, part: matched ? 1 : 0, tgMessageID: e.tgMessageID, direction: "tg->im", now: clock.now)
             }
             matched = true
+            logEvent(.info, "echo_matched", ["imsg_rowid": .int(m.rowid), "tg_message_id": .int(e.tgMessageID), "part": .int(Int64(e.part)),
+                                              "kind": .string(kind), "error_code": .int(Int64(m.errorCode))])
         }
         if matched { log("메아리 확인 rowid=\(m.rowid)") }
         return matched
@@ -657,6 +729,8 @@ public final class Relay {
             let key = e.matchKey ?? ""
             log("메아리 불일치 rowid=\(m.rowid) 후보 tg=\(e.tgMessageID) part=\(e.part) kind=\(e.kind) "
                 + "받은 \(EchoKey.fingerprint(got)) 기다림 \(EchoKey.fingerprint(key)) 같은앞부분=\(EchoKey.commonPrefix(got, key))")
+            logEvent(.debug, "echo_mismatch", ["imsg_rowid": .int(m.rowid), "tg_message_id": .int(e.tgMessageID), "part": .int(Int64(e.part)),
+                                                "kind": .string(e.kind), "common_prefix_len": .int(Int64(EchoKey.commonPrefix(got, key)))])
         }
     }
 
@@ -664,6 +738,8 @@ public final class Relay {
         guard let tb = Tapback.parse(type: m.associatedType, associatedGuid: m.associatedGuid, emoji: m.associatedEmoji) else { return .done }
         let target = try state.tgMessageID(forGuid: tb.targetGuid, part: tb.targetPart)
         let label = tb.emoji ?? "스티커"
+        logEvent(.info, "imsg_reaction_received", ["imsg_rowid": .int(m.rowid), "is_from_me": .bool(m.isFromMe),
+                                                     "action": .string("\(tb.action)"), "tg_message_id": .int(target ?? 0)])
 
         if m.isFromMe {
             // 내 반응은 봇 반응으로 달면 상대 반응처럼 보이므로 글로만 보인다.
@@ -764,6 +840,7 @@ public final class Relay {
             kind = .document
         }
         let name = kind == .document ? a.transferName : file.lastPathComponent
+        logEvent(.info, "attachment_relayed", ["direction": .string("im_to_tg"), "kind": .string("\(kind)"), "bytes": .int(size)])
         do {
             return try await telegram.sendMedia(kind, fileURL: file, filename: name, mimeType: AttachmentClassifier.mime(for: file.lastPathComponent),
                                                 caption: caption, replyTo: replyTo)

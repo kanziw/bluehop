@@ -4,6 +4,13 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+### Added
+- A second, structured log: `~/Library/Logs/bluehop-events.jsonl`, one JSON object per line (timestamp, level, mapping, the relevant Telegram/chat.db correlation id), covering every step of a request — received, send start/end with its duration, echo wait/match/give-up, warning sent, reaction/attachment handling, `getUpdates` errors and retries, and start/halt/resume. It rotates itself by size (10 MB × 5 files). `bluehop status` and `doctor` now print both log paths and the active level. Levels are `info` (default) and `debug` (`BLUEHOP_LOG_LEVEL=debug`); message text, phone numbers, Apple IDs and the token are never written by default, and a couple of events can additionally carry text only when `BLUEHOP_LOG_BODIES=1` is set together with `debug`.
+- `scripts/collect-logs.sh`: bundles both logs into a `.tar.gz` for a bug report (read-only, no Full Disk Access needed), dropping any line that the debug body opt-in may have added as a second line of defense.
+
+### Fixed
+- An osascript send that hit the internal time limit was treated as a definite failure right away. Killing osascript does not tell us whether Messages had already received and started acting on the request, so a send that actually went through could still get a false "couldn't send" warning. It is now held as unconfirmed for a grace period (`sendTimeoutGrace`, same length as the existing `confirmTimeout` by default) during which chat.db echo matching keeps trying; only if nothing matches by the end of the grace period does it fall back to the existing warning. No message is ever sent twice.
+
 ## [0.5.1] - 2026-10-15
 
 ### Fixed

@@ -132,6 +132,15 @@ public enum StatusText {
         }
         return out
     }
+
+    /// 로그 파일 위치 한 줄(사람이 읽는 `status` 출력에 붙인다 — `--json` 은 `logs` 키).
+    public static func logsLine(lang: OutputLanguage) -> String {
+        let level = "\(EventLog.levelFromEnvironment())"
+        switch lang {
+        case .ko: return "로그: \(Paths.textLogFile) · 사건(JSONL) \(Paths.eventLogFile) [\(level)]"
+        case .en: return "logs: \(Paths.textLogFile) · events (JSONL) \(Paths.eventLogFile) [\(level)]"
+        }
+    }
 }
 
 /// LaunchAgent 가 도는지(`launchctl print` 출력에서 state·pid 만 읽는다).

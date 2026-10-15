@@ -730,3 +730,87 @@ final class EchoMatchingAcrossUnicodeFormsTests: XCTestCase {
         XCTAssertEqual(MockTelegram.calls("sendMessage").last?.json["text"] as? String, "🙋 나: 전혀 다른 글")
     }
 }
+
+/// osascript 가 시간 제한으로 강제 종료되면 메시지 앱에 전달됐는지 알 수 없다 — 곧바로 실패로 단정하면
+/// 실제로는 전달된 경우에 거짓 ⚠️ 와 "🙋 나:" 중복 게시가 함께 생긴다. `OutboxStatus.ambiguousTimeout` 은
+/// 이 애매함을 `sendTimeoutGrace` 동안 유예하고, 그래도 못 맞추면 평소처럼 실패로 알린다.
+final class AmbiguousSendTimeoutTests: XCTestCase {
+    /// 유예 안에 똑같은 글(정규화 후 완전 일치)이 메아리로 오면 조용히 확인 처리하고 경고·중복 게시를 하지 않는다.
+    func testAmbiguousTimeoutConfirmsOnLateExactEchoWithinGrace() async throws {
+        let h = try Harness.make()
+        try await h.relay.start()
+        h.sender.failNextWithTimeout = true
+        MockTelegram.enqueue([Harness.textUpdate(1, messageID: 42, text: "응답 없음 뒤 늦게 확인됨")])
+        await h.relay.tick()
+        XCTAssertTrue(h.sender.sent.isEmpty)  // osascript 를 흉내낸 호출 자체가 실패로 돌아옴
+        XCTAssertEqual(try h.state.outbox(tgMessageID: 42).map(\.status), [.ambiguousTimeout])
+        XCTAssertTrue(MockTelegram.sentMethods.isEmpty)  // 아직 유예 중 — 경고 없음
+
+        // 메시지 앱이 실제로는 요청을 처리해 chat.db 에 늦게 적는다(osascript 는 그걸 보지 못하고 죽었을 뿐).
+        try h.fixture.insert(text: "응답 없음 뒤 늦게 확인됨", fromMe: true)
+        h.clock.now += 5
+        await h.relay.tick()
+
+        XCTAssertEqual(try h.state.outbox(tgMessageID: 42).map(\.status), [.confirmed])
+        XCTAssertTrue(MockTelegram.sentMethods.isEmpty)  // 경고도, 중복 게시도 없음
+    }
+
+    /// 유예가 끝날 때까지 메아리가 안 오면 평소처럼 "확인하지 못했다"고 알린다 — 다시 보내지 않는다.
+    func testAmbiguousTimeoutFailsAfterGraceWithoutEcho() async throws {
+        let h = try Harness.make()
+        try await h.relay.start()
+        h.sender.failNextWithTimeout = true
+        MockTelegram.enqueue([Harness.textUpdate(1, messageID: 42, text: "끝내 확인 안 됨")])
+        await h.relay.tick()
+        XCTAssertTrue(MockTelegram.sentMethods.isEmpty)  // 유예 중
+
+        h.clock.now += h.relay.options.sendTimeoutGrace + 1
+        await h.relay.tick()
+
+        let warn = try XCTUnwrap(MockTelegram.calls("sendMessage").last?.json["text"] as? String)
+        XCTAssertTrue(warn.contains("보내지 못했거나 확인하지 못했습니다"))
+        XCTAssertTrue(warn.contains("자동으로 다시 보내지 않았습니다"))
+        XCTAssertEqual(try h.state.outbox(tgMessageID: 42).map(\.status), [.failed])
+        XCTAssertEqual(h.sender.sent.count, 0)  // 재전송 없음
+    }
+
+    /// 경고를 이미 보낸 뒤에는 같은 글이 와도 그 판정을 되돌리지 않는다(거짓으로 "사실 성공했다"고
+    /// 고치지 않음) — 그냥 새로운 "내가 직접 보낸 글"로 다뤄 평소처럼 중계한다.
+    func testLateEchoAfterWarningIsTreatedAsNewOwnMessage() async throws {
+        let h = try Harness.make()
+        try await h.relay.start()
+        h.sender.failNextWithTimeout = true
+        MockTelegram.enqueue([Harness.textUpdate(1, messageID: 42, text: "경고 나간 뒤 도착")])
+        await h.relay.tick()
+        h.clock.now += h.relay.options.sendTimeoutGrace + 1
+        await h.relay.tick()  // 경고 발송, 메아리 맞춤 키 비움
+        XCTAssertEqual(try h.state.outbox(tgMessageID: 42).map(\.status), [.failed])
+
+        try h.fixture.insert(text: "경고 나간 뒤 도착", fromMe: true)
+        h.clock.now += h.relay.options.echoGraceSeconds + 1
+        await h.relay.tick()
+
+        XCTAssertEqual(MockTelegram.calls("sendMessage").last?.json["text"] as? String, "🙋 나: 경고 나간 뒤 도착")
+    }
+
+    /// 알려진 한계: 유예 안에 사람이 iPhone 에서 직접 똑같은(정규화 후 완전히 같은) 글을 보내면, 그 글과
+    /// "실은 늦게 전달된 내 발송"을 chat.db 모양만으로는 구별할 수 없어 메아리로 잘못 삼켜진다(중계가
+    /// 빠짐, 경고도 없음). `sent` 상태가 `confirmTimeout`(기본 60초) 동안 이미 받아들이는 것과 같은 크기의
+    /// 노출이고, 완전히 없앨 신호가 없어 받아들인다 — `Relay.Options.sendTimeoutGrace` 문서 참고.
+    func testIdenticalDirectMessageWithinGraceIsIndistinguishableFromLateEcho() async throws {
+        let h = try Harness.make()
+        try await h.relay.start()
+        h.sender.failNextWithTimeout = true
+        MockTelegram.enqueue([Harness.textUpdate(1, messageID: 42, text: "짧은 대답")])
+        await h.relay.tick()
+
+        // 실제로는 내 발송이 끝내 전달되지 않았고, 사람이 iPhone 에서 같은 말을 직접 입력해 보낸 것일 수도 있다 —
+        // chat.db 행 모양은 두 경우가 똑같아 구별할 수 없다.
+        try h.fixture.insert(text: "짧은 대답", fromMe: true)
+        h.clock.now += 1
+        await h.relay.tick()
+
+        XCTAssertEqual(try h.state.outbox(tgMessageID: 42).map(\.status), [.confirmed])
+        XCTAssertTrue(MockTelegram.sentMethods.isEmpty)  // 사람이 직접 보낸 글이었어도 중계되지 않는다(알려진 한계)
+    }
+}

@@ -171,6 +171,12 @@ public enum Paths {
     public static var defaultOutboxDir: String { home + "/Library/Caches/com.apple.MobileSMS/bluehop-outbox" }
     public static var chatDB: String { home + "/Library/Messages/chat.db" }
     public static var attachmentsRoot: String { home + "/Library/Messages/Attachments" }
+    /// launchd 가 stdout·stderr 를 받아 적는 사람이 읽는 줄(`packaging/*.plist.template` 의 `StandardOutPath`).
+    /// 이 파일은 bluehop 이 아니라 launchd 가 적으므로 스스로 돌지 않는다.
+    public static var textLogFile: String { home + "/Library/Logs/bluehop.log" }
+    /// 요청 하나(텔레그램 업데이트·메시지, iMessage 행)가 거친 단계를 한 줄씩 담는 구조화(JSON Lines) 로그.
+    /// bluehop 이 직접 열고 크기 기준으로 스스로 돈다(`RotatingFileLog`) — 위 텍스트 로그와는 다른 파일.
+    public static var eventLogFile: String { home + "/Library/Logs/bluehop-events.jsonl" }
     public static let keychainService = "dev.kanziw.bluehop"
     /// 0.4.x 의 단일 봇 토큰 계정. 옮겨 온 `default` 매핑이 계속 쓴다.
     public static let legacyKeychainAccount = "telegram-bot-token"

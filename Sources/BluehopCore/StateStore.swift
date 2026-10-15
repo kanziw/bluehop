@@ -6,6 +6,10 @@ public enum OutboxStatus: String {
     case sending
     /// osascript 가 성공을 돌려줌. chat.db 에 기록되기를 기다린다.
     case sent
+    /// osascript 가 시간 제한으로 강제 종료됨 — 메시지 앱에 실제로 전달됐는지 알 수 없다(Apple Event 가
+    /// 이미 전달된 뒤 kill 됐을 수 있음). `sent` 처럼 메아리 맞춤을 계속하다가 `Relay.Options.sendTimeoutGrace`
+    /// 가 지나도 못 맞추면 실패로 넘어간다.
+    case ambiguousTimeout
     /// chat.db 에서 내 메시지로 확인됨.
     case confirmed
     case failed
@@ -271,14 +275,14 @@ public final class StateStore {
     /// 있으면 방금 본 `is_from_me` 행을 "iPhone 에서 직접 보낸 글"로 단정하기 전에 잠깐 기다린다
     /// (본문 비교가 아직 못 맞췄을 수 있음 — `Relay.relay` 의 메아리 유예).
     public func hasUnresolvedOutbox() throws -> Bool {
-        try db.query("SELECT 1 FROM outbox WHERE mapping_id = ? AND status IN ('sending', 'sent') LIMIT 1", [m]) { _ in true }.first ?? false
+        try db.query("SELECT 1 FROM outbox WHERE mapping_id = ? AND status IN ('sending', 'sent', 'ambiguousTimeout') LIMIT 1", [m]) { _ in true }.first ?? false
     }
 
-    /// 메아리를 기다리는(`sent`) 항목 중 kind·키가 같은 가장 오래된 것.
+    /// 메아리를 기다리는(`sent`·`ambiguousTimeout`) 항목 중 kind·키가 같은 가장 오래된 것.
     public func oldestAwaitingEcho(kind: String, matchKey: String) throws -> OutboxEntry? {
         try db.query("""
             SELECT tg_message_id, part, kind, match_key, status, created_at, detail FROM outbox
-            WHERE mapping_id = ? AND status IN ('sending', 'sent') AND kind = ? AND match_key = ?
+            WHERE mapping_id = ? AND status IN ('sending', 'sent', 'ambiguousTimeout') AND kind = ? AND match_key = ?
             ORDER BY created_at, tg_message_id, part LIMIT 1
             """, [m, .text(kind), .text(matchKey)], map: Self.mapOutbox).first
     }
@@ -287,7 +291,7 @@ public final class StateStore {
     public func awaitingEchoes() throws -> [OutboxEntry] {
         try db.query("""
             SELECT tg_message_id, part, kind, match_key, status, created_at, detail FROM outbox
-            WHERE mapping_id = ? AND status IN ('sending', 'sent') ORDER BY created_at, tg_message_id, part LIMIT 20
+            WHERE mapping_id = ? AND status IN ('sending', 'sent', 'ambiguousTimeout') ORDER BY created_at, tg_message_id, part LIMIT 20
             """, [m], map: Self.mapOutbox)
     }
 
@@ -296,6 +300,9 @@ public final class StateStore {
         try db.query("SELECT DISTINCT tg_message_id FROM outbox WHERE mapping_id = ? AND notified = 0 ORDER BY tg_message_id", [m]) { $0.int(0) ?? 0 }
     }
 
+    /// 알림을 보냈다고 기록하고 메아리 맞춤 키를 지운다 — 그 뒤에 같은 본문의 `is_from_me` 행이 와도
+    /// 이미 끝난 이 판정을 되돌리지 않는다(되돌리면 실패로 알린 것이 사실은 성공이었다고 거짓 확신하게 됨).
+    /// 그런 행은 그냥 새 "내가 직접 보낸 글"로 다뤄진다.
     public func markNotified(tgMessageID: Int64) throws {
         try db.run("UPDATE outbox SET notified = 1, match_key = NULL WHERE mapping_id = ? AND tg_message_id = ?", [m, .int(tgMessageID)])
     }
