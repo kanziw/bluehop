@@ -179,7 +179,7 @@ Each bot answers for its own mapping only: `/status`, `/pause`, `/resume`. If mo
 |---|---|---|
 | Text | Yes; longer than 4000 characters is split | Yes, up to 4000 characters |
 | Replies | Real Telegram reply when the original is known, otherwise a `↪ "quote…"` prefix | No public API for iMessage threaded replies; sent with a `↪ "start of original…"` prefix |
-| Reactions | Real Telegram reaction for emoji a bot may use (❤️ 👍 👎, 😂 as 🤣, ❓ as 🤔, some custom emoji); others such as ‼️ as a short reply. Removing a tapback removes the reaction | No public API; ignored by default, or sent as text in `"text"` mode (needs Telegram to deliver reaction updates for private chats; not yet verified) |
+| Reactions | Real Telegram reaction for emoji a bot may use directly, or mapped to the closest one (❤️ 👍 👎, 😂/😆/😅/💀 as 🤣, ❓/❔ as 🤔, ✅/☑️/✔️ as 👌, ‼️/❗/❕ as ⚡, some custom emoji); genuinely unmapped emoji as a short reply. Changing a tapback replaces the reaction (or clears it before falling back to a reply if the new emoji has no mapping); removing a tapback removes the reaction | No public API; ignored by default, or sent as text in `"text"` mode (needs Telegram to deliver reaction updates for private chats; not yet verified) |
 | Attachments | Photos, voice, video, files up to 50 MB (larger ones become a notice); GIFs and photos over 10 MB as files | Photos, voice, video, files up to 20 MB (Telegram bot download limit) |
 | Your messages from other devices | Shown with `🙋 나:` | n/a |
 | Edits and unsend | Not mirrored | Not mirrored (editing in Telegram gets a "not applied" notice) |

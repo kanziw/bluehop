@@ -28,6 +28,7 @@
 | 상대 답글의 `thread_originator_part`: 첨부 행이면 `0:0:1`, 글 행이면 `0:0:<길이>` — 둘 다 원래 텔레그램 글에 답글로 잇는다 | `testCounterpartRepliesToPhotoAndCaptionThreadOnTelegram`, `testReplyUsesMappedTelegramMessage` |
 | 상대가 한 글에 여러 말풍선으로 연달아 답하면 행마다 같은 `thread_originator_guid` 가 붙는다(반응 행이 사이에 낄 수 있다, 2026-10-15). 텔레그램에는 첫 말풍선만 답글로 건다 | `RichLinkRelayTests.testObservedLinkReplyRunBecomesOneLinkCardAndOneReplyHeader`, `testReplyHeaderReturnsAfterAnotherMessageInterleaves` |
 | 상대 반응 행은 `text` 가 차 있고(`Loved …`) `associated_message_guid=p:0/<GUID>`, 기본 반응은 emoji NULL — 글로 중계하지 않고 반응으로 단다 | `testCounterpartReactionRowWithTextBecomesReactionOnly`, `testTapbacksBecomeTelegramReactions` |
+| 상대가 같은 글의 반응을 바꾸면(예: 👀 → ✅) chat.db 에 "지움" 행이 따로 오지 않는다 — 옛 `associated_message_type` 행이 사라지고 새 반응의 add 행(2006, 임의 이모지)만 남는다(2026-10-15). 그래서 교체 처리는 remove 이벤트를 기다리지 않고 새 add 행 하나로 끝낸다 | `testReactionChangeReplacesPreviousTelegramReaction`, `testReactionChangeToUnmappedEmojiClearsStaleBotReactionBeforeFallback` |
 
 ## 링크 (2026-10-15, macOS 26.0.1)
 
