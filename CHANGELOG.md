@@ -4,6 +4,8 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+## [0.5.3] - 2026-10-15
+
 ### Fixed
 - Links from iMessage arrived in Telegram as a mess: every link preview bubble was relayed as one to three unopenable `<UUID>.pluginPayloadAttachment` files (the preview's icon and image) followed by a bare URL with no title. A link bubble is now one Telegram message, `🔗 <title>` and the original URL, with Telegram's link preview turned on for that URL only. The title comes from the bubble's `payload_data`; without it the URL alone is sent. Other messages keep previews off, so a text with several links no longer risks a preview of the wrong one. A link bubble no longer waits for its preview images to download. An iMessage app bubble with no text and only app data is reported in one line instead of as files.
 - When the other side answered one message with several bubbles, every bubble quoted the same original in Telegram. Only the first bubble of such a run is a Telegram reply now; the rest follow it. A reply after any other message in between quotes the original again. The reply links are still stored, so reactions and replies keep working.
@@ -102,7 +104,8 @@ First public release of **bluehop**. Earlier versions were developed privately a
 ### Added
 - First version: one iMessage 1:1 chat ↔ one Telegram chat, read-only chat.db reader, Telegram client, CLI (`run`, `doctor`, `telegram-ids`, `list-chats`, `resume`), signed build, LaunchAgent install scripts.
 
-[Unreleased]: https://github.com/kanziw/bluehop/compare/v0.5.2...HEAD
+[Unreleased]: https://github.com/kanziw/bluehop/compare/v0.5.3...HEAD
+[0.5.3]: https://github.com/kanziw/bluehop/compare/v0.5.2...v0.5.3
 [0.5.2]: https://github.com/kanziw/bluehop/compare/v0.5.1...v0.5.2
 [0.5.1]: https://github.com/kanziw/bluehop/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/kanziw/bluehop/compare/v0.4.1...v0.5.0
