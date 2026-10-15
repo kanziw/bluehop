@@ -153,8 +153,15 @@ public struct ServiceState: Equatable {
         guard exitStatus == 0 else { return ServiceState(loaded: false, running: false, pid: nil) }
         var running = false
         var pid: Int?
+        // 서비스 자신의 속성은 `<label> = {` 바로 안(깊이 1)에만 있다. 그 안의 하위 블록
+        // (`resource coalition = { state = active … }` 등)에도 `state =`·`pid =` 줄이 있으므로
+        // 깊이를 세어 그 줄들은 건너뛴다 — 안 그러면 마지막 하위 블록 값이 최상위 판정을 덮는다.
+        var depth = 0
         for line in out.split(separator: "\n") {
             let t = line.trimmingCharacters(in: .whitespaces)
+            if t == "}" { depth = max(0, depth - 1); continue }
+            if t.hasSuffix("{") { depth += 1; continue }
+            guard depth <= 1 else { continue }
             if t.hasPrefix("state = ") { running = t == "state = running" }
             if t.hasPrefix("pid = "), pid == nil { pid = Int(t.dropFirst(6)) }
         }

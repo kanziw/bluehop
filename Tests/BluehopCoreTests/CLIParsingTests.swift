@@ -109,6 +109,74 @@ final class CLIParsingTests: XCTestCase {
         XCTAssertEqual(ServiceState.parse(launchctlPrint: "", exitStatus: 113), ServiceState(loaded: false, running: false, pid: nil))
     }
 
+    /// 실측 `launchctl print gui/<uid>/dev.kanziw.bluehop`(2026-10-15, macOS 26.0.1) 모양. 경로는 가렸다.
+    /// 실제 출력은 탭 들여쓰기다(레포 훅이 탭 들여쓰기를 막으므로 4칸을 탭으로 바꿔 만든다).
+    /// 하위 블록(`resource coalition`·`jetsam coalition`)에도 `state = active` 가 있고 최상위 `state = running`
+    /// 보다 뒤에 나온다.
+    static let observedLaunchctlPrintRunning = """
+        gui/501/dev.kanziw.bluehop = {
+            active count = 1
+            path = /Users/me/Library/LaunchAgents/dev.kanziw.bluehop.plist
+            type = LaunchAgent
+            state = running
+
+            program = /Users/me/Library/Application Support/bluehop/bin/bluehop
+            arguments = {
+                /Users/me/Library/Application Support/bluehop/bin/bluehop
+                run
+            }
+
+            stdout path = /Users/me/Library/Logs/bluehop.log
+            stderr path = /Users/me/Library/Logs/bluehop.log
+            environment = {
+                OSLogRateLimit => 64
+                XPC_SERVICE_NAME => dev.kanziw.bluehop
+            }
+
+            domain = gui/501 [100024]
+            runs = 1
+            pid = 50939
+            immediate reason = speculative
+            last exit code = (never exited)
+
+            semaphores = {
+                successful exit => 0
+            }
+
+            resource coalition = {
+                ID = 156716
+                type = resource
+                state = active
+                active count = 1
+                name = dev.kanziw.bluehop
+            }
+
+            jetsam coalition = {
+                ID = 156717
+                type = jetsam
+                state = active
+                active count = 1
+                name = dev.kanziw.bluehop
+            }
+
+            spawn type = daemon (3)
+            job state = running
+
+            properties = runatload | inferred program
+        }
+        """.replacingOccurrences(of: "    ", with: "\t")
+
+    func testServiceStateIgnoresNestedCoalitionState() {
+        XCTAssertEqual(ServiceState.parse(launchctlPrint: Self.observedLaunchctlPrintRunning, exitStatus: 0),
+                       ServiceState(loaded: true, running: true, pid: 50939))
+        // 멈춘 서비스: 최상위 state 가 not running 이면 하위 블록이 무엇이든 멈춤이다.
+        let stopped = Self.observedLaunchctlPrintRunning
+            .replacingOccurrences(of: "\tstate = running", with: "\tstate = not running")
+            .replacingOccurrences(of: "\tpid = 50939\n", with: "")
+            .replacingOccurrences(of: "state = active", with: "state = running")
+        XCTAssertEqual(ServiceState.parse(launchctlPrint: stopped, exitStatus: 0), ServiceState(loaded: true, running: false, pid: nil))
+    }
+
     func testOneShotPlistCarriesMarkerAndArgs() throws {
         let data = try LaunchdOneShot.plist(label: "dev.kanziw.bluehop.oneshot.1", binary: "/a b/bluehop", args: ["chats", "--json"], output: "/tmp/o")
         let obj = try XCTUnwrap(PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any])

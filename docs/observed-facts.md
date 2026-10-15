@@ -28,6 +28,12 @@
 | 상대 답글의 `thread_originator_part`: 첨부 행이면 `0:0:1`, 글 행이면 `0:0:<길이>` — 둘 다 원래 텔레그램 글에 답글로 잇는다 | `testCounterpartRepliesToPhotoAndCaptionThreadOnTelegram`, `testReplyUsesMappedTelegramMessage` |
 | 상대 반응 행은 `text` 가 차 있고(`Loved …`) `associated_message_guid=p:0/<GUID>`, 기본 반응은 emoji NULL — 글로 중계하지 않고 반응으로 단다 | `testCounterpartReactionRowWithTextBecomesReactionOnly`, `testTapbacksBecomeTelegramReactions` |
 
+## 서비스 상태 (`launchctl print`)
+
+| 사실 | 테스트 |
+|---|---|
+| 출력은 탭 들여쓰기 블록이고 서비스 속성은 깊이 1 이다. 하위 블록 `resource coalition`·`jetsam coalition` 에도 `state = active` 가 있고 최상위 `state = running` 보다 뒤에 나온다 | `CLIParsingTests.testServiceStateIgnoresNestedCoalitionState` |
+
 ## chat.db 파일
 
 | 사실 | 테스트 |

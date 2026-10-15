@@ -4,6 +4,9 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+### Fixed
+- `bluehop status` reported a running service as "loaded, not running" (`service.running: false`, `pid: null`). It read `state = active` from the nested coalition blocks of `launchctl print`, which come after the service's own `state = running`. Only the service's own lines count now.
+
 ## [0.5.2] - 2026-10-15
 
 ### Added
