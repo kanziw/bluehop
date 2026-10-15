@@ -125,7 +125,7 @@ public final class Relay {
             updates = try await telegram.getUpdates(offset: 0, timeout: 0)
         } catch {
             telegramFailures += 1
-            state.recordError(Self.explainTelegramFailure(error), at: clock.now)
+            state.recordError(Self.explainTelegramFailure(error), code: ErrorCodes.of(error), at: clock.now)
             log("텔레그램 기준선 설정 실패, 다음 틱에 재시도: \(Self.explainTelegramFailure(error))")
             return false
         }
@@ -188,7 +188,7 @@ public final class Relay {
     func noteTelegramFailure(_ error: Error) async {
         telegramFailures += 1
         let why = Self.explainTelegramFailure(error)
-        state.recordError(why, at: clock.now)
+        state.recordError(why, code: ErrorCodes.of(error), at: clock.now)
         log("getUpdates 실패(\(telegramFailures)회): \(why)")
         await clock.sleep(seconds: Self.telegramBackoff(failures: telegramFailures))
     }

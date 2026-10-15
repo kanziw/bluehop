@@ -65,14 +65,14 @@ public final class MappingWorker {
     let claims: BotClaims
     let clock: Clock
     let log: (String) -> Void
-    let recordFailure: (String, String) -> Void
+    let recordFailure: (String, Error) -> Void
     let afterStart: ((Relay) -> Void)?
     public private(set) var relay: Relay?
     public private(set) var startFailures = 0
 
     public init(mapping: MappingConfig, claims: BotClaims, clock: Clock,
                 build: @escaping (MappingConfig) throws -> Relay,
-                recordFailure: @escaping (_ id: String, _ message: String) -> Void,
+                recordFailure: @escaping (_ id: String, _ error: Error) -> Void,
                 afterStart: ((Relay) -> Void)? = nil,
                 log: @escaping (String) -> Void) {
         self.afterStart = afterStart
@@ -112,7 +112,7 @@ public final class MappingWorker {
                 startFailures += 1
                 let wait = Self.startBackoff(failures: startFailures)
                 log("시작 실패(\(startFailures)회), \(Int(wait))초 뒤 다시: \(error)")
-                recordFailure(mapping.id, "\(error)")
+                recordFailure(mapping.id, error)
                 await clock.sleep(seconds: wait)
             }
         }

@@ -18,6 +18,7 @@ func note(_ s: String) { FileHandle.standardError.write(Data((s + "\n").utf8)) }
 let configFlag = FlagSpec("--config", value: "PATH", "설정 파일 (기본: ~/Library/Application Support/bluehop/config.json, 상태 DB 는 같은 폴더)")
 let jsonFlag = FlagSpec("--json", "결과를 JSON 하나로 표준출력에 (안내·오류 설명은 표준오류)")
 let mappingFlag = FlagSpec("--mapping", value: "ID", "대상 매핑 id (매핑이 하나뿐이면 생략)")
+let langFlag = FlagSpec("--lang", value: "ko|en", "사람이 읽는 출력의 언어 (기본 ko, 환경 변수 BLUEHOP_LANG). --json 의 키·코드는 언어와 무관")
 
 struct Command {
     var spec: CommandSpec
@@ -82,18 +83,22 @@ let commands: [String: Command] = [
                                                 positionals: ["ID"], flags: [jsonFlag, configFlag]), run: { try cmdSetEnabled($0, true) }),
     "mapping test": Command(spec: CommandSpec("mapping test", "매핑 하나를 점검한다: 토큰·chat.db 대화·텔레그램 getMe. 아무것도 보내지 않는다.",
                                               positionals: ["ID"],
-                                              flags: [FlagSpec("--messages", "메시지 앱에 대화가 있는지도 본다(자동 제어 권한 필요)"), jsonFlag, configFlag]),
+                                              flags: [FlagSpec("--messages", "메시지 앱에 대화가 있는지도 본다(자동 제어 권한 필요)"), jsonFlag, langFlag, configFlag]),
                             run: cmdMappingTest),
     "doctor": Command(spec: CommandSpec("doctor", "설정·권한·대화를 점검한다(보내지 않음). 매핑을 주지 않으면 모든 매핑.",
                                         flags: [mappingFlag,
                                                 FlagSpec("--messages", "메시지 앱에 대화가 있는지 확인(자동 제어 권한 필요)"),
-                                                FlagSpec("--telegram", "봇 토큰으로 getMe 호출"), jsonFlag, configFlag],
-                                        details: "chat.db 를 열 권한이 없으면(터미널에서 실행) 설치된 bluehop 을 launchd 로 한 번 돌려 그 권한으로 점검한다.",
-                                        examples: ["bluehop doctor", "bluehop doctor --mapping family --telegram --json"]),
+                                                FlagSpec("--telegram", "봇 토큰으로 getMe 호출"), jsonFlag, langFlag, configFlag],
+                                        details: """
+                                            chat.db 를 열 권한이 없으면(터미널에서 실행) 설치된 bluehop 을 launchd 로 한 번 돌려 그 권한으로 점검한다.
+                                            --messages 는 처음 실행할 때 macOS '자동 제어' 승인 창을 띄운다. 아무것도 보내지 않는다.
+                                            --json: check 마다 안정된 id(config·token·chatdb·messages·telegram)와 code(OK·CONFIG_MISSING·TOKEN_FORMAT…, README 'Machine-readable checks').
+                                            """,
+                                        examples: ["bluehop doctor", "bluehop doctor --mapping family --telegram --json", "bluehop doctor --lang en"]),
                       run: cmdDoctor),
     "status": Command(spec: CommandSpec("status", "매핑별 상태: 마지막 텔레그램 확인 시각·마지막 오류·안전 정지, LaunchAgent 실행 여부. 상태 DB 만 읽는다.",
-                                        flags: [jsonFlag, configFlag],
-                                        details: "verdict: ok · paused(설정에서 멈춤) · halted(안전 정지) · error(최근 10분 오류) · stale(2분 넘게 텔레그램 확인 없음) · unknown(아직 기록 없음)"),
+                                        flags: [jsonFlag, langFlag, configFlag],
+                                        details: "verdict: ok · paused(설정에서 멈춤) · halted(안전 정지) · error(최근 10분 오류) · stale(2분 넘게 텔레그램 확인 없음) · unknown(아직 기록 없음)\n--json 의 lastErrorCode 는 doctor 와 같은 코드표(README 'Machine-readable checks')."),
                       run: cmdStatus),
     "telegram-ids": Command(spec: CommandSpec("telegram-ids", "봇에게 최근 보낸 메시지의 chat id·user id (본문 없음). 실행 중인 bluehop 이 같은 봇을 쓰면 비어 보일 수 있다.",
                                               flags: [mappingFlag, FlagSpec("--token-stdin", "봇 토큰을 표준입력 한 줄로 받는다"),

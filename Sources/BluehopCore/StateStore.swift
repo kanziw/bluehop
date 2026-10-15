@@ -162,14 +162,17 @@ public final class StateStore {
         public var lastIMessageScan: Double?
         public var lastError: String?
         public var lastErrorAt: Double?
+        /// `ErrorCodes` 의 코드(오류를 남길 때 함께 남긴 것). 옛 상태 DB 나 코드 없이 남긴 오류는 nil.
+        public var lastErrorCode: String?
         public var halted: String?
         public init(state: String? = nil, lastTelegramOK: Double? = nil, lastIMessageScan: Double? = nil,
-                    lastError: String? = nil, lastErrorAt: Double? = nil, halted: String? = nil) {
+                    lastError: String? = nil, lastErrorAt: Double? = nil, lastErrorCode: String? = nil, halted: String? = nil) {
             self.state = state
             self.lastTelegramOK = lastTelegramOK
             self.lastIMessageScan = lastIMessageScan
             self.lastError = lastError
             self.lastErrorAt = lastErrorAt
+            self.lastErrorCode = lastErrorCode
             self.halted = halted
         }
     }
@@ -178,14 +181,16 @@ public final class StateStore {
         func d(_ k: String) -> Double? { ((try? get(k)) ?? nil).flatMap { Double($0) } }
         return Health(state: (try? get("health.state")) ?? nil, lastTelegramOK: d("health.last_tg_ok"),
                       lastIMessageScan: d("health.last_imsg_scan"), lastError: (try? get("health.last_error")) ?? nil,
-                      lastErrorAt: d("health.last_error_at"), halted: haltReason)
+                      lastErrorAt: d("health.last_error_at"), lastErrorCode: (try? get("health.last_error_code")) ?? nil,
+                      halted: haltReason)
     }
     public func setHealthState(_ s: String) { try? set("health.state", s) }
     public func markTelegramOK(_ now: Double) { try? set("health.last_tg_ok", String(Int64(now))) }
     public func markIMessageScan(_ now: Double) { try? set("health.last_imsg_scan", String(Int64(now))) }
-    public func recordError(_ message: String?, at now: Double) {
+    public func recordError(_ message: String?, code: String? = nil, at now: Double) {
         try? set("health.last_error", message.map { String($0.prefix(300)) })
         try? set("health.last_error_at", message == nil ? nil : String(Int64(now)))
+        try? set("health.last_error_code", message == nil ? nil : (code ?? ErrorCodes.unknown))
     }
 
     // MARK: mapping

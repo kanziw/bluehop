@@ -94,7 +94,43 @@ public struct MappingStatus {
             "lastTelegramPollAt": health.lastTelegramOK.map(JSONOut.iso),
             "lastIMessageScanAt": health.lastIMessageScan.map(JSONOut.iso),
             "lastError": health.lastError, "lastErrorAt": health.lastErrorAt.map(JSONOut.iso),
+            "lastErrorCode": health.lastError == nil ? nil : (health.lastErrorCode ?? ErrorCodes.unknown),
         ]
+    }
+}
+
+/// `bluehop status` 의 사람이 읽는 줄(한국어 기본, `--lang en` 이면 영어).
+public enum StatusText {
+    public static func lines(service: ServiceState, rows: [MappingStatus], now: Double, lang: OutputLanguage) -> [String] {
+        var out: [String] = []
+        let pid = service.pid.map(String.init) ?? "?"
+        switch lang {
+        case .ko:
+            out.append("서비스 \(Paths.launchAgentLabel): \(service.running ? "실행 중 (pid \(pid))" : service.loaded ? "등록됨, 멈춤" : "등록 안 됨")")
+            if rows.isEmpty { out.append("매핑이 없습니다. 추가: bluehop mapping add") }
+        case .en:
+            out.append("service \(Paths.launchAgentLabel): \(service.running ? "running (pid \(pid))" : service.loaded ? "loaded, not running" : "not loaded")")
+            if rows.isEmpty { out.append("No mappings. Add one: bluehop mapping add") }
+        }
+        for r in rows {
+            let h = r.health
+            var line = "[\(r.id)] \(r.verdict(now: now))"
+            switch lang {
+            case .ko:
+                if let t = h.lastTelegramOK { line += " · 텔레그램 확인 \(Int(now - t))초 전" }
+                if let reason = h.halted { line += " · 정지: \(reason)" }
+                if let e = h.lastError { line += " · 오류: \(e)" }
+            case .en:
+                if let t = h.lastTelegramOK { line += " · last Telegram poll \(Int(now - t))s ago" }
+                if h.halted != nil { line += " · safety halt (reason in Korean: run with --json)" }
+                if h.lastError != nil {
+                    let code = h.lastErrorCode ?? ErrorCodes.unknown
+                    line += " · error [\(code)]: \(ErrorCodes.message(code))"
+                }
+            }
+            out.append(line)
+        }
+        return out
     }
 }
 

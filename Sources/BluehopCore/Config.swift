@@ -136,6 +136,10 @@ public enum ConfigError: Error, CustomStringConvertible {
     case insecurePermissions(path: String, mode: Int)
     case invalid(String)
     case token(String)
+    /// 봇 토큰 모양이 아니다(`<숫자>:<영문·숫자·_->`).
+    case tokenFormat
+    /// 토큰의 봇이 설정에 기록된 봇(botId)과 다르다.
+    case botMismatch(got: Int64, want: Int64)
     /// 매핑끼리 겹친다(같은 대화·같은 봇·같은 id). CLI 는 종료 코드 3 으로 알린다.
     case conflict(String)
 
@@ -146,6 +150,8 @@ public enum ConfigError: Error, CustomStringConvertible {
             return "권한이 너무 넓다: \(p) (\(String(m, radix: 8))). chmod 600(파일)/700(폴더) 후 다시 실행"
         case .invalid(let m): return "설정 오류: \(m)"
         case .token(let m): return "봇 토큰: \(m)"
+        case .tokenFormat: return "봇 토큰: 형식이 맞지 않다"
+        case .botMismatch(let got, let want): return "봇 토큰: 토큰의 봇(id \(got))이 설정의 botId(\(want))와 다르다"
         case .conflict(let m): return "매핑 충돌: \(m)"
         }
     }
@@ -426,7 +432,7 @@ public enum ConfigLoader {
     public static func validateToken(_ raw: String) throws -> String {
         let token = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard token.range(of: #"^[0-9]{5,}:[A-Za-z0-9_-]{20,}$"#, options: .regularExpression) != nil else {
-            throw ConfigError.token("형식이 맞지 않다")
+            throw ConfigError.tokenFormat
         }
         return token
     }

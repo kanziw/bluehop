@@ -159,4 +159,78 @@ final class CLIBinaryTests: XCTestCase {
         XCTAssertFalse(bad.stdout.contains("not-a-token"))
         XCTAssertFalse(bad.stderr.contains("not-a-token"))
     }
+
+    /// 토큰 파일(형식이 틀림)을 쓰는 매핑 하나: Keychain·네트워크 없이 doctor 가 실패 코드를 낸다.
+    func fileTokenConfig() -> String {
+        let dir = makeTempDir()
+        let tokenPath = writePrivate("not-a-token\n", in: dir, name: "token")
+        return writePrivate("""
+            {"version":2,"mappings":[{"id":"family","enabled":true,
+             "telegram":{"chatId":555,"allowedUserId":777,"tokenSource":"file","tokenFile":"\(tokenPath)"},
+             "imessage":{"chatGuid":"any;-;+821011112222","handle":"+821011112222"}}]}
+            """, in: dir)
+    }
+
+    func testDoctorJSONHasStableIdsAndCodes() throws {
+        // 설정 없음
+        let missing = makeTempDir().appendingPathComponent("config.json").path
+        var r = try run(["doctor", "--json", "--config", missing])
+        XCTAssertEqual(r.status, 1)
+        var obj = try json(r)
+        XCTAssertEqual(obj["schemaVersion"] as? Int, 1)
+        XCTAssertEqual(obj["ok"] as? Bool, false)
+        XCTAssertEqual((obj["config"] as? [String: Any])?["code"] as? String, "CONFIG_MISSING")
+        XCTAssertEqual((obj["config"] as? [String: Any])?["id"] as? String, "config")
+        XCTAssertEqual(obj["codes"] as? [String], ["CONFIG_MISSING"])
+
+        // 틀린 토큰 + chat.db 없음(빈 홈)
+        let cfg = fileTokenConfig()
+        r = try run(["doctor", "--json", "--config", cfg])
+        XCTAssertEqual(r.status, 1, r.stderr)
+        obj = try json(r)
+        XCTAssertEqual((obj["config"] as? [String: Any])?["code"] as? String, "OK")
+        let m = try XCTUnwrap((obj["mappings"] as? [[String: Any]])?.first)
+        let checks = try XCTUnwrap(m["checks"] as? [[String: Any]])
+        XCTAssertEqual(checks.map { $0["id"] as? String }, ["token", "chatdb"])
+        XCTAssertEqual(checks.map { $0["code"] as? String }, ["TOKEN_FORMAT", "CHATDB_UNREADABLE"])
+        for c in checks { XCTAssertEqual(Set(c.keys), ["id", "name", "title", "ok", "code", "detail", "message"]) }
+        XCTAssertEqual(m["codes"] as? [String], ["TOKEN_FORMAT", "CHATDB_UNREADABLE"])
+        XCTAssertEqual(obj["codes"] as? [String], ["TOKEN_FORMAT", "CHATDB_UNREADABLE"])
+        XCTAssertFalse(r.stdout.contains("not-a-token"))
+
+        // mapping test 도 같은 모양(텔레그램은 토큰을 못 읽어 건너뜀 — 네트워크 없음)
+        r = try run(["mapping", "test", "family", "--json", "--config", cfg])
+        XCTAssertEqual(r.status, 1)
+        let t = try XCTUnwrap(((try json(r))["mappings"] as? [[String: Any]])?.first?["checks"] as? [[String: Any]])
+        XCTAssertEqual(t.map { $0["code"] as? String }, ["TOKEN_FORMAT", "CHATDB_UNREADABLE", "TELEGRAM_SKIPPED"])
+        XCTAssertEqual(entries(home), [])
+    }
+
+    func testEnglishOutputForDoctorAndStatus() throws {
+        let cfg = fileTokenConfig()
+        let isHangul: (String) -> Bool = { $0.unicodeScalars.contains { $0.value >= 0xAC00 && $0.value <= 0xD7A3 } }
+        for (args, env) in [(["doctor", "--lang", "en", "--config", cfg], [String: String]()),
+                            (["doctor", "--config", cfg], ["BLUEHOP_LANG": "en"])] {
+            let r = try run(args, env: env)
+            XCTAssertEqual(r.status, 1)
+            XCTAssertTrue(r.stdout.contains("[TOKEN_FORMAT]"), r.stdout)
+            XCTAssertTrue(r.stdout.contains("[CHATDB_UNREADABLE]"), r.stdout)
+            XCTAssertFalse(isHangul(r.stdout), r.stdout)
+        }
+        let ko = try run(["doctor", "--config", cfg])
+        XCTAssertTrue(ko.stdout.contains("봇 토큰"), ko.stdout)
+        let st = try run(["status", "--lang", "en", "--config", cfg])
+        XCTAssertEqual(st.status, 0, st.stderr)
+        XCTAssertTrue(st.stdout.hasPrefix("service dev.kanziw.bluehop: "), st.stdout)
+        XCTAssertTrue(st.stdout.contains("[family] unknown"), st.stdout)
+        XCTAssertFalse(isHangul(st.stdout), st.stdout)
+        let sj = try json(try run(["status", "--json", "--config", cfg]))
+        XCTAssertEqual(sj["schemaVersion"] as? Int, 1)
+        let row = try XCTUnwrap((sj["mappings"] as? [[String: Any]])?.first)
+        XCTAssertTrue(row.keys.contains("lastErrorCode"))
+        XCTAssertTrue(row["lastErrorCode"] is NSNull)
+        // 모르는 언어는 사용법 오류
+        XCTAssertEqual(try run(["doctor", "--lang", "fr", "--config", cfg]).status, 2)
+        XCTAssertEqual(try run(["status", "--config", cfg], env: ["BLUEHOP_LANG": "fr"]).status, 2)
+    }
 }

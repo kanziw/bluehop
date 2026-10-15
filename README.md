@@ -90,12 +90,48 @@ Every command has `--help`; read commands take `--json`; unknown flags are error
 | `bluehop mapping remove ID [--keep-token] [--purge-state]` | Remove a mapping and its Keychain token |
 | `bluehop mapping pause ID` / `resume ID` | Stop or restart one mapping without touching the others |
 | `bluehop mapping test ID [--messages] [--json]` | Check one mapping (token, chat, `getMe`). Sends nothing |
-| `bluehop doctor [--mapping ID] [--messages] [--telegram] [--json]` | Check all mappings or one |
-| `bluehop status [--json]` | Per mapping: last Telegram poll, last error, safety halt; whether the LaunchAgent runs |
+| `bluehop doctor [--mapping ID] [--messages] [--telegram] [--json] [--lang en]` | Check all mappings or one. Sends nothing; `--messages` triggers the macOS Automation prompt the first time, `--telegram` calls `getMe` |
+| `bluehop status [--json] [--lang en]` | Per mapping: last Telegram poll, last error, safety halt; whether the LaunchAgent runs |
 | `bluehop resume [--mapping ID] [--skip-backlog]` | Clear a safety halt |
 | `bluehop telegram-ids [--mapping ID \| --token-stdin]` | Chat and user ids of recent senders to a bot |
 
 Exit codes: `0` ok, `1` failure (a check failed, network, Keychain), `2` usage error, `3` conflict (same chat, same bot or same id), `4` not found, `5` timed out waiting for a Telegram message, `130` cancelled.
+
+### Machine-readable checks
+
+Human-readable output is Korean by default. `doctor`, `mapping test` and `status` take `--lang en` (or the environment variable `BLUEHOP_LANG=en`) for English. Other commands, error messages on stderr and the bot's replies stay Korean; agents should use `--json` and branch on the codes below, not on text.
+
+- `doctor --json` / `mapping test --json`: `{"schemaVersion": 1, "ok", "codes": [...], "config": CHECK, "mappings": [{"id", "enabled", "ok", "codes", "checks": [CHECK]}]}`. Each `CHECK` is `{"id", "ok", "code", "name", "detail", "title", "message"}`: `id` is one of `config`, `token`, `chatdb`, `messages`, `telegram`; `code` is from the table; `name` and `detail` are Korean, `title` and `message` English. `codes` lists the failing codes in order. Run through launchd (no Full Disk Access in the terminal), the object also has `"via": "launchd"`.
+- `status --json`: `{"schemaVersion": 1, "service": {"label", "loaded", "running", "pid"}, "mappings": [{"id", "enabled", "verdict", "workerState", "halted", "lastTelegramPollAt", "lastIMessageScanAt", "lastError", "lastErrorAt", "lastErrorCode"}]}`. `verdict` is `ok`, `paused`, `halted`, `error`, `stale` or `unknown`; `lastErrorCode` is from the table (`null` when there is no error).
+- Error on any command with `--json`: `{"ok": false, "error": {"kind", "message", "exitCode"}}`, `kind` one of `failure`, `usage`, `conflict`, `not_found`, `timeout`, `cancelled`.
+
+Codes are stable: renaming or removing one, or changing its meaning, is a breaking change (and bumps `schemaVersion`); new codes may be added, so treat an unknown code like `UNKNOWN`.
+
+| Code | Meaning |
+|---|---|
+| `OK` | Check passed. |
+| `CONFIG_MISSING` | Config file does not exist |
+| `CONFIG_PERMISSIONS` | Config, token file or folder readable by others (needs 0600 / 0700) |
+| `CONFIG_INVALID` | Config not valid (JSON shape, unknown version, empty ids, group chat guid) |
+| `CONFIG_CONFLICT` | One iMessage chat or one bot linked twice |
+| `MAPPING_NOT_FOUND` | No mapping with that id |
+| `TOKEN_UNREADABLE` | Keychain item or token file missing or unreadable |
+| `TOKEN_FORMAT` | Not a Telegram bot token |
+| `TOKEN_BOT_MISMATCH` | Token belongs to a different bot than the config records |
+| `CHATDB_UNREADABLE` | Messages database cannot be opened (Full Disk Access missing) |
+| `CHAT_NOT_FOUND` | Configured chat guid not in the Messages database |
+| `CHAT_NOT_ONE_TO_ONE` | Configured chat is a group chat |
+| `CHAT_HANDLE_MISMATCH` | Chat participant differs from the configured handle |
+| `MESSAGES_AUTOMATION_DENIED` | Automation permission for Messages missing (osascript -1743) |
+| `MESSAGES_CHAT_NOT_FOUND` | Messages.app does not know the chat |
+| `MESSAGES_ERROR` | Other osascript failure |
+| `TELEGRAM_UNAUTHORIZED` | Token rejected (HTTP 401/404) |
+| `TELEGRAM_CONFLICT` | Another poller or a webhook on the same bot (HTTP 409) |
+| `TELEGRAM_RATE_LIMITED` | Telegram asked to retry later |
+| `TELEGRAM_NETWORK` | api.telegram.org unreachable |
+| `TELEGRAM_ERROR` | Other Telegram API error |
+| `TELEGRAM_SKIPPED` | getMe skipped because the token could not be read |
+| `UNKNOWN` | Anything else; read `detail` |
 
 ## Configuration
 

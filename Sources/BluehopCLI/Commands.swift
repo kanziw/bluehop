@@ -73,7 +73,7 @@ func cmdRun(_ ctx: Context) async throws -> ExitCode {
             build: { m in
                 let token = try ConfigLoader.loadToken(m)
                 if let want = m.telegram.botId, let got = ConfigLoader.botID(ofToken: token), want != got {
-                    throw ConfigError.token("토큰의 봇(id \(got))이 설정의 botId(\(want))와 다르다")
+                    throw ConfigError.botMismatch(got: got, want: want)
                 }
                 let chatDB = try ChatDB(path: Paths.chatDB, attachmentsRoot: Paths.attachmentsRoot)
                 let state = try StateStore(path: statePath, mappingID: m.id)
@@ -82,10 +82,10 @@ func cmdRun(_ ctx: Context) async throws -> ExitCode {
                              converter: SystemMediaConverter(), clock: SystemClock(), options: MappingOptions.make(m),
                              activity: activity, log: { log("[\(m.id)] \($0)") })
             },
-            recordFailure: { id, message in
+            recordFailure: { id, error in
                 guard let s = try? StateStore(path: statePath, mappingID: id) else { return }
                 s.setHealthState("backoff")
-                s.recordError(message, at: Date().timeIntervalSince1970)
+                s.recordError("\(error)", code: ErrorCodes.of(error), at: Date().timeIntervalSince1970)
             },
             afterStart: { relay in
                 // 시작할 때 보내지 않고 대화 존재만 확인한다. launchd 로 돌 때 '자동 제어' 승인 창도 이때 뜬다.
@@ -303,30 +303,44 @@ func cmdMappingAdd(_ ctx: Context) async throws -> ExitCode {
 
 // MARK: - doctor
 
+func outputLanguage(_ ctx: Context) throws -> OutputLanguage {
+    try OutputLanguage.resolve(flag: ctx.args.value("--lang"))
+}
+
 func cmdDoctor(_ ctx: Context) async throws -> ExitCode {
+    let lang = try outputLanguage(ctx)
     let report = try await doctorReport(ctx, only: ctx.args.value("--mapping"), messages: ctx.args.has("--messages"),
                                         telegram: ctx.args.has("--telegram"))
-    if ctx.json { say(JSONOut.render(report)) } else { printDoctor(report) }
+    if ctx.json { say(JSONOut.render(report)) } else { printDoctor(report, lang: lang) }
     return (report["ok"] as? Bool) == true ? .ok : .failure
 }
 
 func cmdMappingTest(_ ctx: Context) async throws -> ExitCode {
+    let lang = try outputLanguage(ctx)
     let report = try await doctorReport(ctx, only: ctx.args.positionals[0], messages: ctx.args.has("--messages"), telegram: true)
-    if ctx.json { say(JSONOut.render(report)) } else { printDoctor(report) }
+    if ctx.json { say(JSONOut.render(report)) } else { printDoctor(report, lang: lang) }
     return (report["ok"] as? Bool) == true ? .ok : .failure
 }
 
+/// `doctor --json` 모양의 판 번호. 키를 지우거나 뜻을 바꾸면 올린다(더하기만 하면 그대로).
+let doctorSchemaVersion = 1
+
 /// 점검 결과(JSON 모양). chat.db 를 열 수 없고 설치된 bluehop 이 있으면 launchd 로 `doctor --json` 을 돌려 그 결과를 쓴다.
+/// check 마다 안정된 `id`·`code`(ErrorCodes), 한국어 `name`·`detail`, 영어 `title`·`message` 가 있다.
 func doctorReport(_ ctx: Context, only: String?, messages: Bool, telegram: Bool) async throws -> [String: Any?] {
-    var configCheck: [String: Any?] = ["name": "설정 파일 (0600)", "ok": false, "detail": ctx.configPath]
+    let configCheck: [String: Any?]
     let loaded: LoadedConfig
     do {
         loaded = try loadConfig(ctx)
-        configCheck["ok"] = true
-        configCheck["detail"] = "\(ctx.configPath) — 매핑 \(loaded.config.mappings.count)개\(loaded.legacy ? " (0.4.x 모양, default 로 읽음)" : "")"
+        let n = loaded.config.mappings.count
+        configCheck = DoctorCheck.passed(
+            "config",
+            ko: "\(ctx.configPath) — 매핑 \(n)개\(loaded.legacy ? " (0.4.x 모양, default 로 읽음)" : "")",
+            en: "\(ctx.configPath): \(n) mapping\(n == 1 ? "" : "s")\(loaded.legacy ? " (0.4.x shape, read as 'default')" : "")")
     } catch {
-        configCheck["detail"] = "\(error)"
-        return ["ok": false, "config": configCheck, "mappings": [] as [Any]]
+        let c = DoctorCheck.failed("config", error)
+        return ["schemaVersion": doctorSchemaVersion, "ok": false, "config": c, "mappings": [] as [Any],
+                "codes": DoctorCheck.failingCodes([c])]
     }
     let targets: [MappingConfig]
     if let only {
@@ -352,73 +366,87 @@ func doctorReport(_ ctx: Context, only: String?, messages: Bool, telegram: Bool)
         note("launchd 로 점검하지 못함: \(r.stderr.prefix(200))")
     }
     var allOK = true
+    var allChecks: [[String: Any?]] = []
     var results: [[String: Any?]] = []
     for m in targets {
         var checks: [[String: Any?]] = []
-        func check(_ name: String, _ body: () throws -> String) {
-            do { checks.append(["name": name, "ok": true, "detail": try body()]) } catch {
-                checks.append(["name": name, "ok": false, "detail": "\(error)"])
+        func check(_ id: String, _ body: () throws -> (ko: String, en: String)) {
+            do {
+                let d = try body()
+                checks.append(DoctorCheck.passed(id, ko: d.ko, en: d.en))
+            } catch {
+                checks.append(DoctorCheck.failed(id, error))
             }
         }
         var token: String?
-        check("봇 토큰") {
+        check("token") {
             let t = try ConfigLoader.loadToken(m)
             token = t
             if let want = m.telegram.botId, let got = ConfigLoader.botID(ofToken: t), want != got {
-                throw ConfigError.token("토큰의 봇(id \(got))이 설정의 botId(\(want))와 다르다")
+                throw ConfigError.botMismatch(got: got, want: want)
             }
-            return m.telegram.tokenSource == "file" ? "읽음 (파일)" : "읽음 (Keychain 계정 \(m.keychainAccount))"
+            return m.telegram.tokenSource == "file"
+                ? ("읽음 (파일)", "read (file)")
+                : ("읽음 (Keychain 계정 \(m.keychainAccount))", "read (Keychain account \(m.keychainAccount))")
         }
-        check("chat.db 읽기 전용 열기 + 대화 검증") {
-            guard let db else { throw CLIError(.failure, "chat.db 를 열지 못함: \(why ?? "") — \(fdaHint)") }
+        check("chatdb") {
+            guard let db else { throw CheckFailure("CHATDB_UNREADABLE", "chat.db 를 열지 못함: \(why ?? "") — \(fdaHint)") }
             let chat = try db.resolveChat(guid: m.imessage.chatGuid, expectedHandle: m.imessage.handle)
-            return "1:1 대화 확인 (chat rowid \(chat.rowid))"
+            return ("1:1 대화 확인 (chat rowid \(chat.rowid))", "1:1 chat found (chat rowid \(chat.rowid))")
         }
         if messages {
-            check("메시지 앱에 대화 존재 (자동 제어)") {
-                guard try AppleScriptSender().chatExists(m.imessage.chatGuid) else { throw SendError("메시지 앱에서 chat id 를 찾지 못함") }
-                return "있음"
+            check("messages") {
+                guard try AppleScriptSender().chatExists(m.imessage.chatGuid) else {
+                    throw CheckFailure("MESSAGES_CHAT_NOT_FOUND", "메시지 앱에서 chat id 를 찾지 못함")
+                }
+                return ("있음", "found")
             }
         }
         if telegram {
-            var result: Result<TelegramClient.BotInfo, Error> = .failure(ConfigError.token("토큰을 읽지 못해 건너뜀"))
+            var result: Result<TelegramClient.BotInfo, Error> = .failure(CheckFailure("TELEGRAM_SKIPPED", "토큰을 읽지 못해 건너뜀"))
             if let token {
                 do { result = .success(try await TelegramClient(token: token, chatID: m.telegram.chatId).getMeInfo()) } catch {
-                    result = .failure(CLIError(.failure, TelegramErrorHint.explain(error)))
+                    result = .failure(CheckFailure(ErrorCodes.of(error), TelegramErrorHint.explain(error)))
                 }
             }
-            check("텔레그램 getMe") {
+            check("telegram") {
                 let info = try result.get()
-                if let want = m.telegram.botId, want != info.id { throw ConfigError.token("봇 id 가 설정과 다르다") }
-                return "@" + info.username
+                if let want = m.telegram.botId, want != info.id { throw ConfigError.botMismatch(got: info.id, want: want) }
+                return ("@" + info.username, "@" + info.username)
             }
         }
         let ok = checks.allSatisfy { ($0["ok"] as? Bool) == true }
         if !ok { allOK = false }
-        results.append(["id": m.id, "enabled": m.enabled, "ok": ok, "checks": checks])
+        allChecks += checks
+        results.append(["id": m.id, "enabled": m.enabled, "ok": ok, "checks": checks, "codes": DoctorCheck.failingCodes(checks)])
     }
-    return ["ok": allOK, "config": configCheck, "mappings": results]
+    return ["schemaVersion": doctorSchemaVersion, "ok": allOK, "config": configCheck, "mappings": results,
+            "codes": DoctorCheck.failingCodes(allChecks)]
 }
 
-func printDoctor(_ r: [String: Any?]) {
-    if let c = r["config"] as? [String: Any?] {
-        say("\((c["ok"] as? Bool) == true ? "✔" : "✘") \(c["name"] as? String ?? "설정"): \(c["detail"] as? String ?? "")")
-    } else if let c = r["config"] as? [String: Any] {
-        say("\((c["ok"] as? Bool) == true ? "✔" : "✘") \(c["name"] as? String ?? "설정"): \(c["detail"] as? String ?? "")")
+func printDoctor(_ r: [String: Any?], lang: OutputLanguage = .ko) {
+    func plain(_ v: Any?) -> [String: Any]? {
+        if let d = v as? [String: Any?] { return d.compactMapValues { $0 } }
+        return v as? [String: Any]
     }
-    let maps: [[String: Any]] = (r["mappings"] as? [[String: Any?]])?.map { $0.compactMapValues { $0 } } ?? (r["mappings"] as? [[String: Any]]) ?? []
-    for m in maps {
-        say("[\(m["id"] as? String ?? "?")]\((m["enabled"] as? Bool) == false ? " (멈춤)" : "")")
-        let checks: [[String: Any]] = (m["checks"] as? [[String: Any?]])?.map { $0.compactMapValues { $0 } } ?? (m["checks"] as? [[String: Any]]) ?? []
-        for c in checks {
-            say("  \((c["ok"] as? Bool) == true ? "✔" : "✘") \(c["name"] as? String ?? ""): \(c["detail"] as? String ?? "")")
-        }
+    func list(_ v: Any?) -> [[String: Any]] {
+        (v as? [[String: Any?]])?.map { $0.compactMapValues { $0 } } ?? (v as? [[String: Any]]) ?? []
+    }
+    if let c = plain(r["config"] ?? nil) { say(DoctorCheck.line(c, lang: lang)) }
+    for m in list(r["mappings"] ?? nil) {
+        let paused = (m["enabled"] as? Bool) == false ? (lang == .en ? " (paused)" : " (멈춤)") : ""
+        say("[\(m["id"] as? String ?? "?")]\(paused)")
+        for c in list(m["checks"]) { say("  " + DoctorCheck.line(c, lang: lang)) }
     }
 }
 
 // MARK: - status
 
+/// `status --json` 모양의 판 번호. 키를 지우거나 뜻을 바꾸면 올린다(더하기만 하면 그대로).
+let statusSchemaVersion = 1
+
 func cmdStatus(_ ctx: Context) async throws -> ExitCode {
+    let lang = try outputLanguage(ctx)
     let loaded = try loadConfig(ctx)
     let service = ServiceState.current()
     let now = Date().timeIntervalSince1970
@@ -430,21 +458,13 @@ func cmdStatus(_ ctx: Context) async throws -> ExitCode {
     }
     if ctx.json {
         say(JSONOut.render([
+            "schemaVersion": statusSchemaVersion,
             "service": ["label": Paths.launchAgentLabel, "loaded": service.loaded, "running": service.running, "pid": service.pid] as [String: Any?],
             "mappings": rows.map { $0.json(now: now) },
         ] as [String: Any?]))
         return .ok
     }
-    say("서비스 \(Paths.launchAgentLabel): \(service.running ? "실행 중 (pid \(service.pid.map(String.init) ?? "?"))" : service.loaded ? "등록됨, 멈춤" : "등록 안 됨")")
-    if rows.isEmpty { say("매핑이 없습니다. 추가: bluehop mapping add") }
-    for r in rows {
-        let h = r.health
-        var line = "[\(r.id)] \(r.verdict(now: now))"
-        if let t = h.lastTelegramOK { line += " · 텔레그램 확인 \(Int(now - t))초 전" }
-        if let reason = h.halted { line += " · 정지: \(reason)" }
-        if let e = h.lastError { line += " · 오류: \(e)" }
-        say(line)
-    }
+    for line in StatusText.lines(service: service, rows: rows, now: now, lang: lang) { say(line) }
     return .ok
 }
 
