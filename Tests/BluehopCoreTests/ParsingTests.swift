@@ -58,7 +58,17 @@ final class TapbackTests: XCTestCase {
         XCTAssertEqual(TelegramReactions.telegramEmoji(for: "😂"), "🤣")
         XCTAssertEqual(TelegramReactions.telegramEmoji(for: "❓"), "🤔")
         XCTAssertEqual(TelegramReactions.telegramEmoji(for: "🔥"), "🔥")
-        XCTAssertNil(TelegramReactions.telegramEmoji(for: "‼️"))
+        // 허용 목록에 없는 흔한 이모지 → 가까운 허용 이모지로 대응(표는 Reactions.swift 참고).
+        XCTAssertEqual(TelegramReactions.telegramEmoji(for: "✅"), "👌")
+        XCTAssertEqual(TelegramReactions.telegramEmoji(for: "☑️"), "👌")
+        XCTAssertEqual(TelegramReactions.telegramEmoji(for: "✔️"), "👌")
+        XCTAssertEqual(TelegramReactions.telegramEmoji(for: "‼️"), "⚡")
+        XCTAssertEqual(TelegramReactions.telegramEmoji(for: "❗"), "⚡")
+        XCTAssertEqual(TelegramReactions.telegramEmoji(for: "🙂"), "😁")
+        XCTAssertEqual(TelegramReactions.telegramEmoji(for: "😊"), "😁")
+        // 피부색 변경자가 붙어도 기본형으로 맞는다(iMessage 쪽에서 흔하다).
+        XCTAssertEqual(TelegramReactions.telegramEmoji(for: "👍🏽"), "👍")
+        // 정말 대응이 없는 것은 그대로 nil(대체 글 경로를 계속 타야 한다).
         XCTAssertNil(TelegramReactions.telegramEmoji(for: "🦖"))
     }
 }
