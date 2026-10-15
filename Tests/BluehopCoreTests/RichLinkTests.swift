@@ -117,6 +117,30 @@ final class RichLinkParsingTests: XCTestCase {
     }
 }
 
+final class TelegramTextLinkTests: XCTestCase {
+    func testHiddenLinkIsSpelledOut() {
+        let text = "자세한 건 여기 보세요"
+        let e = TGEntity(type: "text_link", offset: 6, length: 2, url: "https://docs.example.com/p")
+        XCTAssertEqual(TelegramText.expandingTextLinks(text, entities: [e]), "자세한 건 여기 (https://docs.example.com/p) 보세요")
+    }
+
+    func testOffsetsAreUTF16AndSeveralLinksKeepTheirPlaces() {
+        // 🔥 는 UTF-16 두 단위다.
+        let text = "🔥 첫째 둘째"
+        let es = [TGEntity(type: "text_link", offset: 3, length: 2, url: "https://a.example.com"),
+                  TGEntity(type: "bold", offset: 0, length: 2),
+                  TGEntity(type: "text_link", offset: 6, length: 2, url: "https://b.example.com")]
+        XCTAssertEqual(TelegramText.expandingTextLinks(text, entities: es), "🔥 첫째 (https://a.example.com) 둘째 (https://b.example.com)")
+    }
+
+    func testVisibleOrBrokenLinksAreLeftAlone() {
+        let text = "https://a.example.com"
+        XCTAssertEqual(TelegramText.expandingTextLinks(text, entities: [TGEntity(type: "text_link", offset: 0, length: 21, url: "https://a.example.com")]), text)
+        XCTAssertEqual(TelegramText.expandingTextLinks("짧음", entities: [TGEntity(type: "text_link", offset: 1, length: 9, url: "https://a.example.com")]), "짧음")
+        XCTAssertEqual(TelegramText.expandingTextLinks("글", entities: nil), "글")
+    }
+}
+
 // MARK: - 중계: 실측 사례(상대가 한 질문에 링크 말풍선을 섞어 여러 말풍선으로 답함)
 
 final class RichLinkRelayTests: XCTestCase {
@@ -237,4 +261,17 @@ final class RichLinkRelayTests: XCTestCase {
         XCTAssertEqual(preview(r), ["url": "https://a.example.com/mcp"])
     }
 
+    /// 텔레그램 → iMessage: 글자 뒤에 숨은 링크(text_link)는 주소를 펼쳐 보낸다(iMessage 는 서식이 없어 주소가 사라진다).
+    func testTelegramHiddenLinkReachesIMessageWithURL() async throws {
+        let h = try Harness.make()
+        try await h.relay.start()
+        var u = Harness.textUpdate(1, messageID: 50, text: "이 글 보세요")
+        var msg = u["message"] as! [String: Any]
+        msg["entities"] = [["type": "text_link", "offset": 2, "length": 1, "url": "https://docs.example.com/p"]]
+        u["message"] = msg
+        MockTelegram.enqueue([u])
+        await h.relay.tick()
+        XCTAssertEqual(h.sender.sent.last?.payload, "이 글 (https://docs.example.com/p) 보세요")
+        XCTAssertEqual(try h.state.outbox(tgMessageID: 50).map(\.status), [.confirmed], "펼친 글 그대로 메아리가 맞는다")
+    }
 }

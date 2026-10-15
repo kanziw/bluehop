@@ -328,7 +328,9 @@ public final class Relay {
             return
         }
 
-        var text = rawText.hasPrefix("//") ? String(rawText.dropFirst()) : rawText
+        let linked = m.text != nil ? TelegramText.expandingTextLinks(rawText, entities: m.entities)
+                                   : TelegramText.expandingTextLinks(rawText, entities: m.caption_entities)
+        var text = linked.hasPrefix("//") ? String(linked.dropFirst()) : linked
         if let reply = m.reply_to_message {
             text = Self.quotePrefix(stripOwn(reply.text ?? reply.caption ?? "")) + (text.isEmpty ? "" : "\n" + text)
         }

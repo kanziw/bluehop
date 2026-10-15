@@ -33,6 +33,9 @@ public struct TGMessage: Decodable, Equatable {
     public var date: Int64?
     public var text: String?
     public var caption: String?
+    /// 서식·링크 표시. 글자에 주소가 안 보이는 링크(`text_link`)를 iMessage 로 옮길 때 주소를 살리려고 읽는다.
+    public var entities: [TGEntity]?
+    public var caption_entities: [TGEntity]?
     public var reply_to_message: TGReplyMessage?
     public var photo: [TGPhotoSize]?
     public var voice: TGFileRef?
@@ -42,6 +45,36 @@ public struct TGMessage: Decodable, Equatable {
     public var video_note: TGFileRef?
     public var sticker: TGFileRef?
     public var animation: TGFileRef?
+}
+
+public struct TGEntity: Decodable, Equatable {
+    public var type: String
+    /// UTF-16 단위 위치·길이(텔레그램 API 규약).
+    public var offset: Int
+    public var length: Int
+    public var url: String?
+    public init(type: String, offset: Int, length: Int, url: String? = nil) {
+        self.type = type; self.offset = offset; self.length = length; self.url = url
+    }
+}
+
+/// 텔레그램 글을 iMessage(서식 없는 글)로 옮길 때 잃는 정보를 글자로 살린다.
+public enum TelegramText {
+    /// `text_link`(글자 뒤에 숨은 주소)는 iMessage 에서 주소가 사라지므로 `글자 (주소)` 로 펼친다.
+    /// 글자에 이미 같은 주소가 보이면 그대로 둔다. 위치가 글 밖이면 무시한다.
+    public static func expandingTextLinks(_ text: String, entities: [TGEntity]?) -> String {
+        let links = (entities ?? []).filter { $0.type == "text_link" && !($0.url ?? "").isEmpty }
+        guard !links.isEmpty else { return text }
+        var units = Array(text.utf16)
+        for e in links.sorted(by: { $0.offset > $1.offset }) {
+            let end = e.offset + e.length
+            guard e.offset >= 0, e.length > 0, end <= units.count, let url = e.url else { continue }
+            let label = String(decoding: units[e.offset..<end], as: UTF16.self)
+            if label.contains(url) { continue }
+            units.insert(contentsOf: Array(" (\(url))".utf16), at: end)
+        }
+        return String(decoding: units, as: UTF16.self)
+    }
 }
 
 public struct TGReactionType: Decodable, Equatable { public var type: String; public var emoji: String? }
