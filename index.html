@@ -4,17 +4,20 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>bluehop: iMessage to Telegram relay, one bot per chat</title>
-<meta name="description" content="bluehop forwards iMessage conversations to Telegram bots, one bot per chat, and sends your Telegram replies back. A tiny self-hosted macOS relay: Swift, zero dependencies, no web UI, no open ports, no cloud, SIP stays enabled.">
+<meta name="description" content="bluehop forwards the iMessage 1:1 chats you choose to Telegram, one bot per chat, and sends your Telegram replies back. A tiny macOS relay you build on your Mac: Swift, zero dependencies, no web UI, no open ports, SIP stays enabled. No bluehop-operated server. Runs on your Mac; relayed bot messages are stored by Telegram and are not end-to-end encrypted.">
 <meta name="color-scheme" content="light dark">
 <meta name="theme-color" content="#f6f4ee" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#0d1424" media="(prefers-color-scheme: dark)">
 <link rel="canonical" href="https://kanziw.dev/bluehop/">
 <meta property="og:type" content="website">
 <meta property="og:title" content="bluehop: iMessage to Telegram relay, one bot per chat">
-<meta property="og:description" content="Forward the iMessage conversations you choose to Telegram, one bot per chat, and reply from Telegram. Self-hosted on your Mac.">
+<meta property="og:description" content="Forward the iMessage 1:1 chats you choose to Telegram, one bot per chat, and reply from Telegram. No bluehop-operated server. Runs on your Mac; relayed bot messages are stored by Telegram and are not end-to-end encrypted.">
+<meta name="twitter:description" content="Forward the iMessage 1:1 chats you choose to Telegram, one bot per chat, and reply from Telegram. No bluehop-operated server. Runs on your Mac; relayed bot messages are stored by Telegram and are not end-to-end encrypted.">
 <meta property="og:url" content="https://kanziw.dev/bluehop/">
 <meta property="og:image" content="https://kanziw.dev/bluehop/social-preview.png">
 <meta name="twitter:card" content="summary_large_image">
+<link rel="sitemap" type="application/xml" href="https://kanziw.dev/bluehop/sitemap.xml">
+<link rel="alternate" type="text/plain" title="llms.txt" href="https://kanziw.dev/bluehop/llms.txt">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect x='4' y='14' width='34' height='24' rx='12' fill='%232f6bff'/%3E%3Crect x='26' y='30' width='34' height='24' rx='12' fill='%2329a9eb'/%3E%3C/svg%3E">
 <script type="application/ld+json">
 {
@@ -23,7 +26,7 @@
     {"@type": "SoftwareApplication", "name": "bluehop", "operatingSystem": "macOS 14 or newer",
      "applicationCategory": "UtilitiesApplication", "license": "https://opensource.org/licenses/MIT",
      "url": "https://kanziw.dev/bluehop/", "codeRepository": "https://github.com/kanziw/bluehop",
-     "description": "iMessage to Telegram relay, one Telegram bot per linked chat. Self-hosted on a Mac signed in to Messages.",
+     "description": "iMessage to Telegram relay, one Telegram bot per linked 1:1 chat, several chats in one process. Built and run on your own Mac signed in to Messages. No bluehop-operated server. Runs on your Mac; relayed bot messages are stored by Telegram and are not end-to-end encrypted.",
      "offers": {"@type": "Offer", "price": "0", "priceCurrency": "USD"}},
     {"@type": "FAQPage", "mainEntity": [
       {"@type": "Question", "name": "Can I get iMessages in Telegram?",
@@ -34,8 +37,8 @@
        "acceptedAnswer": {"@type": "Answer", "text": "Yes, since version 0.5.0. Each linked iMessage 1:1 chat gets its own Telegram bot (create one per chat with @BotFather), and one bluehop process relays them all. Add one with bluehop mapping add: it asks for the bot token, lets you pick the chat with the arrow keys and detects your Telegram ids. Chats are isolated: a revoked token or a safety halt in one does not stop the others. One chat or one bot cannot be linked twice."}},
       {"@type": "Question", "name": "Does it work with group chats?",
        "acceptedAnswer": {"@type": "Answer", "text": "No. Only 1:1 chats can be linked; a group chat is refused."}},
-      {"@type": "Question", "name": "Does it open a port or use a cloud service?",
-       "acceptedAnswer": {"@type": "Answer", "text": "No. It makes outbound HTTPS requests to api.telegram.org only and has no web UI or listening socket. Telegram bot chats are not end-to-end encrypted, so relayed messages are stored on Telegram's servers."}},
+      {"@type": "Question", "name": "Does it open a port or use a server?",
+       "acceptedAnswer": {"@type": "Answer", "text": "There is no bluehop-operated server, no web UI and no listening socket: bluehop runs on your Mac and makes outbound HTTPS requests to api.telegram.org only. Relayed bot messages are stored by Telegram and are not end-to-end encrypted."}},
       {"@type": "Question", "name": "Do I need a Mac?",
        "acceptedAnswer": {"@type": "Answer", "text": "Yes. iMessage requires a Mac signed in to Messages. bluehop runs there as a LaunchAgent; it is not a hosted service."}}
     ]}
@@ -87,6 +90,7 @@ nav a:hover { color: var(--fg); }
 h1 { font-family: var(--serif); font-weight: 600; font-size: clamp(2.3rem, 6vw, 3.9rem); line-height: 1.04; letter-spacing: -.025em; margin: 0 0 20px; }
 h1 em { font-style: italic; color: var(--blue); }
 .lead { font-size: 1.14rem; color: var(--muted); margin: 0 0 28px; max-width: 34em; }
+.lead.small { font-size: .95rem; margin-top: -14px; }
 .cta { display: flex; flex-wrap: wrap; gap: 12px; }
 .btn { display: inline-block; padding: 12px 20px; border-radius: 999px; font-weight: 600; text-decoration: none; font-size: .98rem; }
 .btn.primary { background: var(--blue); color: #fff; box-shadow: 0 10px 24px -12px var(--blue); }
@@ -187,13 +191,14 @@ footer p { margin: 6px 0; }
   <div>
     <p class="eyebrow">Self-hosted relay for macOS</p>
     <h1><em>iMessage</em> to Telegram, one bot for each chat that matters.</h1>
-    <p class="lead">bluehop forwards the iMessage conversations you choose to Telegram, each to its own bot chat, and sends your Telegram replies back. A tiny self-hosted relay for your Mac: one signed Swift binary, zero dependencies, no web UI, no open ports, no cloud, and System Integrity Protection stays on.</p>
+    <p class="lead">bluehop forwards the iMessage 1:1 chats you choose to Telegram, each to its own bot chat, and sends your Telegram replies back. Link one chat or several; one process relays them all. A tiny relay for your Mac: one Swift binary you build and sign on that Mac, zero dependencies, no web UI, no open ports, and System Integrity Protection stays on.</p>
+    <p class="lead small"><strong>No bluehop-operated server.</strong> Runs on your Mac; relayed bot messages are stored by Telegram and are not end-to-end encrypted.</p>
     <div class="cta">
-      <a class="btn primary" href="https://github.com/kanziw/bluehop#install">Install guide</a>
+      <a class="btn primary" href="https://github.com/kanziw/bluehop/blob/main/docs/AGENT-GUIDE.md">Install guide</a>
       <a class="btn ghost" href="https://github.com/kanziw/bluehop">View source</a>
     </div>
     <ul class="chips" aria-label="Key facts">
-      <li>macOS 14+</li><li>Swift · 0 deps</li><li>no open ports</li><li>SIP stays on</li><li>MIT</li>
+      <li>macOS 14+</li><li>Swift · 0 deps</li><li>no open ports</li><li>no bluehop server</li><li>SIP stays on</li><li>MIT</li>
     </ul>
   </div>
   <div class="stage" role="img" aria-label="An iMessage arrives and appears in Telegram; a reply written in Telegram goes back to iMessage.">
@@ -220,7 +225,7 @@ footer p { margin: 6px 0; }
     </ul></div>
     <div class="card no"><h3>What it does not do</h3><ul>
       <li>Group chats, or every chat through a single bot.</li>
-      <li>A web UI, an open port, or a hosted service.</li>
+      <li>A web UI, an open port, or a bluehop-run server.</li>
       <li>Ask you to disable SIP or use private Apple APIs.</li>
       <li>Real threaded replies or tapbacks <em>into</em> iMessage (sent as quoted text).</li>
     </ul></div>
@@ -231,7 +236,7 @@ footer p { margin: 6px 0; }
   <h2>How it works</h2>
   <p class="sub">Everything happens on your Mac. The only host it talks to is <code>api.telegram.org</code>.</p>
   <ol class="steps">
-    <li><h3>One signed binary</h3><p>A LaunchAgent runs it. Only that binary gets Full Disk Access and Automation permission; your terminal never does.</p></li>
+    <li><h3>One binary, built on your Mac</h3><p>You build and sign it locally with Xcode; a LaunchAgent runs it. Only that binary gets Full Disk Access and Automation permission; your terminal never does.</p></li>
     <li><h3>Reads your chosen chats</h3><p>New rows of the linked 1:1 chats are read from <code>chat.db</code>, opened read-only. Each chat has its own worker.</p></li>
     <li><h3>Posts to its bot</h3><p>Each chat's messages arrive in its own private bot chat. Only your Telegram user id is accepted back.</p></li>
     <li><h3>Sends and checks</h3><p>Replies go out through a fixed AppleScript, then each send is confirmed in <code>chat.db</code>. Nothing is resent automatically.</p></li>
@@ -252,18 +257,18 @@ footer p { margin: 6px 0; }
     <tbody>
     <tr><th scope="row">Used from</th><td class="us">One Telegram bot chat per linked chat</td><td>Web UI, Telegram plugin, push, plugins</td><td>Android, Windows, Linux, web apps</td><td>Matrix clients</td></tr>
     <tr><th scope="row">Chats</th><td class="us">Chosen 1:1 chats, one bot each</td><td>All, incl. groups</td><td>All, incl. groups</td><td>All, incl. groups</td></tr>
-    <tr><th scope="row">Listens on a port</th><td class="us">No</td><td>Yes (web UI; no auth by default per its README)</td><td>Yes (server, via proxy or port forwarding)</td><td>Needs a Matrix homeserver and websocket proxy</td></tr>
-    <tr><th scope="row">Real replies/tapbacks into iMessage</th><td class="us">No (quoted text)</td><td>See its docs</td><td>With its Private API (requires disabling SIP)</td><td>Not on the standard macOS connector</td></tr>
+    <tr><th scope="row">Listens on a port</th><td class="us">No</td><td>Yes (web UI; no auth by default, optional shared password, <a href="https://github.com/allenbina/chatwire#web-ui-access">README</a>)</td><td>Yes (server, via proxy or port forwarding)</td><td>Normal-Mac connector needs a Matrix homeserver and websocket proxy (<a href="https://docs.mau.fi/bridges/go/imessage/mac/setup.html">setup</a>); with a Beeper account, <code>bbctl</code> self-hosts it without one (<a href="https://docs.mau.fi/bridges/go/imessage/">docs</a>)</td></tr>
+    <tr><th scope="row">Real replies/tapbacks into iMessage</th><td class="us">No (quoted text)</td><td>See its docs</td><td>With its Private API; SIP off only for Private API features (<a href="https://docs.bluebubbles.app/private-api/installation">docs</a>)</td><td>Not on the normal-Mac connector; yes on the Mac-without-SIP or <a href="https://github.com/mautrix/imessage/tree/master/imessage/bluebubbles">BlueBubbles</a> connector (<a href="https://docs.mau.fi/bridges/go/imessage/">docs</a>)</td></tr>
     <tr><th scope="row">Stack, license</th><td class="us">Swift, 0 deps, MIT</td><td>Python, MIT</td><td>TypeScript, Apache-2.0</td><td>Go, AGPL-3.0</td></tr>
     </tbody>
   </table>
   </div>
-  <p class="note">Sources: each project's README or official docs, checked 2026-10-15. Choose a full bridge if you want every conversation or a rich client.</p>
+  <p class="note">Sources: each project's README or official docs (linked in the cells), checked 2026-10-15. Choose a full bridge if you want every conversation or a rich client.</p>
 </section>
 
 <section id="install">
   <h2>Install</h2>
-  <p class="sub">About fifteen minutes on a Mac that stays on. Every step has a check in the <a href="https://github.com/kanziw/bluehop/blob/main/docs/AGENT-GUIDE.md">agent guide</a>, so a coding agent can drive it; a person grants the macOS permissions and enters the bot token.</p>
+  <p class="sub">About fifteen minutes on a Mac that stays on, once full Xcode is installed (several GB; needed to build and test), ideally with an Apple Development or Developer ID signing certificate (without one, macOS asks for the permissions again after every reinstall). There is no prebuilt download yet. Every step has a check in the <a href="https://github.com/kanziw/bluehop/blob/main/docs/AGENT-GUIDE.md">agent guide</a>, so a coding agent can drive it; a person grants Full Disk Access and the Messages Automation prompt, and creates the bot token.</p>
   <div class="install">
 <pre><code>git clone https://github.com/kanziw/bluehop
 cd bluehop
@@ -271,7 +276,7 @@ bash scripts/install.sh --no-load
 # grant Full Disk Access to the binary, then:
 "$HOME/Library/Application Support/bluehop/bin/bluehop" mapping add
 bash scripts/agent-run.sh doctor --messages --telegram
-bash scripts/install.sh</code></pre>
+bash scripts/install.sh   # starts the relay: real relaying from here</code></pre>
     <ol>
       <li>Create a bot with @BotFather, one per chat you want to link.</li>
       <li>Build and install with the script; nothing starts yet.</li>
@@ -279,7 +284,7 @@ bash scripts/install.sh</code></pre>
       <li>Run <code>doctor</code>; when every line is ✔, start the LaunchAgent.</li>
     </ol>
   </div>
-  <p class="note">Needs Xcode (Swift 6) to build. The <a href="https://github.com/kanziw/bluehop#install">README</a> has the exact commands.</p>
+  <p class="note">Needs full Xcode (Swift 6) to build. Exact commands and checks: <a href="https://github.com/kanziw/bluehop/blob/main/docs/AGENT-GUIDE.md">agent guide</a>; which commands change state: its side-effect table.</p>
 </section>
 
 <section id="faq">
@@ -288,15 +293,15 @@ bash scripts/install.sh</code></pre>
   <details><summary>Do I need to disable SIP?</summary><p>No. bluehop uses only public mechanisms: read-only access to chat.db and AppleScript to send. The trade-off: replies and reactions you make in Telegram cannot become real iMessage threaded replies or tapbacks. Replies are sent with a quoted prefix; reactions are ignored by default.</p></details>
   <details><summary>Can I relay several chats?</summary><p>Yes, since 0.5.0. Each linked iMessage 1:1 chat gets its own Telegram bot (create one per chat with @BotFather), and one bluehop process relays them all. Add one with <code>bluehop mapping add</code>: it asks for the bot token, lets you pick the chat with the arrow keys and detects your Telegram ids from one message to the bot. Chats are isolated: a revoked token or a safety halt in one does not stop the others, and the same chat or bot cannot be linked twice. <code>bluehop status</code> shows each one.</p></details>
   <details><summary>Does it work with group chats?</summary><p>No. Only 1:1 chats can be linked; a group chat is refused.</p></details>
-  <details><summary>Does it open a port or use a cloud service?</summary><p>No. It makes outbound HTTPS requests to api.telegram.org only. Note that Telegram bot chats are not end-to-end encrypted, so relayed messages are stored on Telegram's servers.</p></details>
+  <details><summary>Does it open a port or use a server?</summary><p>There is no bluehop-operated server, no web UI and no listening socket. bluehop runs on your Mac and makes outbound HTTPS requests to api.telegram.org only. Relayed bot messages are stored by Telegram and are not end-to-end encrypted.</p></details>
   <details><summary>Do I need a Mac?</summary><p>Yes. iMessage requires a Mac signed in to Messages. bluehop runs there as a LaunchAgent; it is not a hosted service.</p></details>
   <details><summary>Can an AI agent install it for me?</summary><p>Mostly. The agent guide lists every step with a check, every command has <code>--help</code> and <code>--json</code>, and the repository ships an agent skill file. A person still has to grant Full Disk Access and Automation, and hand over the bot token (on stdin, never in chat), because macOS and good security require it.</p></details>
-  <details><summary>Is the bot in English?</summary><p>Not yet. Bot replies, <code>doctor</code> output and logs are currently in Korean. Your relayed messages pass through unchanged.</p></details>
+  <details><summary>Is the bot in English?</summary><p>Not yet. Bot replies and logs are in Korean. <code>doctor</code>, <code>mapping test</code> and <code>status</code> print English with <code>--lang en</code>, and their <code>--json</code> output has stable error codes for agents. Your relayed messages pass through unchanged.</p></details>
 </section>
 </main>
 
 <footer>
-  <p><a href="https://github.com/kanziw/bluehop">github.com/kanziw/bluehop</a> · <a href="https://github.com/kanziw/bluehop/blob/main/SECURITY.md">Security</a> · <a href="https://github.com/kanziw/bluehop/blob/main/LICENSE">MIT license</a></p>
+  <p><a href="https://github.com/kanziw/bluehop">github.com/kanziw/bluehop</a> · <a href="https://github.com/kanziw/bluehop/blob/main/docs/AGENT-GUIDE.md">Agent guide</a> · <a href="llms.txt">llms.txt</a> · <a href="sitemap.xml">sitemap</a> · <a href="https://github.com/kanziw/bluehop/blob/main/SECURITY.md">Security</a> · <a href="https://github.com/kanziw/bluehop/blob/main/LICENSE">MIT license</a></p>
   <p>bluehop is not affiliated with, endorsed by, or sponsored by Apple Inc. or Telegram. iMessage and Messages are trademarks of Apple Inc. Telegram is a trademark of its respective owner.</p>
 </footer>
 </div>

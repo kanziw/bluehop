@@ -1,0 +1,31 @@
+# bluehop
+
+> iMessage to Telegram relay, one bot per chat. A tiny, zero-dependency macOS tool that forwards iMessage 1:1 conversations to Telegram bot chats (one bot per linked chat, several chats in one process) and sends Telegram replies back. One Swift binary that you build and sign on your own Mac (full Xcode required), no web UI, no open ports, SIP stays enabled. No bluehop-operated server. Runs on your Mac; relayed bot messages are stored by Telegram and are not end-to-end encrypted. Not affiliated with Apple or Telegram. MIT license. Source: https://github.com/kanziw/bluehop · Site: https://kanziw.dev/bluehop/
+
+Start with the agent guide: every install step has a verification command, a side-effect table says which commands only read, write locally, call Telegram or deliver messages, and the troubleshooting table quotes the exact (Korean) error strings. Some steps need a human (Full Disk Access, the Automation prompt, creating the bot token); the guide marks them.
+
+- [Agent guide](https://github.com/kanziw/bluehop/blob/main/docs/AGENT-GUIDE.md): install, side effects of every command, operate, verify, troubleshoot
+- [Agent skill](https://github.com/kanziw/bluehop/blob/main/skills/bluehop/SKILL.md): task-oriented instructions (add a mapping non-interactively, inspect, troubleshoot, safety rules)
+- [README](https://github.com/kanziw/bluehop/blob/main/README.md): overview, comparison with chatwire / BlueBubbles / mautrix-imessage, CLI, machine-readable error codes, configuration keys, limits
+- [README (Korean)](https://github.com/kanziw/bluehop/blob/main/README.ko.md)
+- [Multi-mapping design](https://github.com/kanziw/bluehop/blob/main/docs/design-multi-mapping.md): config model, isolation, CLI, exit codes
+- [Security](https://github.com/kanziw/bluehop/blob/main/SECURITY.md): threat model and controls
+- [Contributor and agent rules](https://github.com/kanziw/bluehop/blob/main/AGENTS.md)
+- [Changelog](https://github.com/kanziw/bluehop/blob/main/CHANGELOG.md)
+- [Design spec, Korean](https://github.com/kanziw/bluehop/blob/main/SPEC.md): data flow, state, limits
+- [iMessage limits, Korean](https://github.com/kanziw/bluehop/blob/main/docs/imessage-limits.md): why replies and reactions cannot be sent to iMessage without disabling SIP
+
+## Hard facts (as of 2026-10-15, version 0.5.1)
+- Name: the project and binary are bluehop; install paths are under `~/Library/Application Support/bluehop/`, and the LaunchAgent label and Keychain service are `dev.kanziw.bluehop`.
+- Platform: macOS 14+ target, built and run on macOS 26.0.1 with Xcode 26.2. Building needs full Xcode. No prebuilt download yet. No Linux, Windows or iOS.
+- Scope: chosen iMessage 1:1 chats, each linked to its own Telegram bot ("mapping"); several mappings run in one process, isolated from each other. No group chats, no several chats through one bot.
+- CLI: `bluehop chats`, `bluehop mapping list|add|remove|pause|resume|test`, `bluehop doctor [--mapping ID]`, `bluehop status`. Every command and script has `--help`/`-h`, which exits 0 before doing anything; unknown flags exit 2; read commands take `--json`. Exit codes: 0 ok, 1 failure, 2 usage, 3 conflict, 4 not found, 5 timeout, 130 cancelled.
+- Machine-readable checks: `doctor --json` and `mapping test --json` give each check a stable `id` and `code` (`OK`, `CONFIG_MISSING`, `TOKEN_FORMAT`, `CHATDB_UNREADABLE`, `MESSAGES_AUTOMATION_DENIED`, `TELEGRAM_UNAUTHORIZED`, ...); `status --json` has `verdict` and `lastErrorCode`. `--lang en` or `BLUEHOP_LANG=en` prints those commands in English.
+- Side effects: `mapping add/remove/pause/resume` write the config (and Keychain for add/remove); with the relay running, `mapping add`, `mapping resume` and `resume` start relaying within seconds; `bash scripts/install.sh` stops the relay, replaces the binary and starts it (real relaying from then on); `bash scripts/uninstall.sh --purge` deletes all data; `doctor --messages` shows the macOS Automation prompt; `diag-send-file` sends a real iMessage.
+- Adding a mapping without prompts: `bluehop mapping add --token-stdin --chat <guid> --id <slug> --json < token-file` (the token is never a command-line argument; the human creates the token file and deletes it afterwards).
+- Telegram → iMessage: text up to 4000 characters, files up to 20 MB. Replies become a quoted prefix; reactions are ignored by default.
+- iMessage → Telegram: text, replies, tapbacks, photos, voice, video, files up to 50 MB.
+- Bot replies, logs and most CLI text are in Korean.
+- Install: `bash scripts/install.sh --no-load`, then the human grants Full Disk Access, then `bluehop mapping add`, then `bash scripts/agent-run.sh doctor --messages --telegram`, then `bash scripts/install.sh`.
+- Never ask the human to paste the bot token into chat. It goes into the Keychain through the hidden prompt of `bluehop mapping add` or stdin.
+- Never send test messages to the real contact without the human's explicit go-ahead.
