@@ -6,6 +6,30 @@
 #   bash scripts/agent-run.sh doctor --messages --telegram
 set -euo pipefail
 BIN="${BLUEHOP_BIN:-$HOME/Library/Application Support/bluehop/bin/bluehop}"
+usage() {
+  cat <<'USAGE'
+usage: bash scripts/agent-run.sh <bluehop command> [options]
+
+Runs the INSTALLED bluehop once through a temporary launchd job (label
+dev.kanziw.bluehop.oneshot), so it uses the binary's own Full Disk Access and Automation
+permissions instead of the terminal's. Prints its output and exits with its exit code.
+The command runs with its normal side effects (see docs/AGENT-GUIDE.md, side-effect table).
+
+  -h, --help  print this help and exit without doing anything
+If the bluehop arguments contain --help or -h, the installed binary is run directly
+(no launchd job), because help needs no permission and has no side effects.
+USAGE
+}
+# 도움말은 launchd 작업을 만들기 전에 판정한다.
+if [[ $# -eq 0 ]]; then usage >&2; exit 2; fi
+if [[ "$1" == "-h" || "$1" == "--help" ]]; then usage; exit 0; fi
+for a in "$@"; do
+  [[ "$a" == "--" ]] && break
+  if [[ "$a" == "-h" || "$a" == "--help" ]]; then
+    if [[ -x "$BIN" ]]; then exec "$BIN" "$@"; fi
+    usage; echo "(installed binary not found: $BIN; for command help run .build/debug/bluehop $* )"; exit 0
+  fi
+done
 [[ -x "$BIN" ]] || { echo "설치된 바이너리가 없습니다: $BIN (먼저 scripts/install.sh)" >&2; exit 1; }
 LABEL="dev.kanziw.bluehop.oneshot"
 DOMAIN="gui/$(id -u)"

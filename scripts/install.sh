@@ -3,8 +3,31 @@
 #   bash scripts/install.sh            # 설정·doctor 통과 시 LaunchAgent 까지 켬
 #   bash scripts/install.sh --no-load  # 파일만 배치
 set -euo pipefail
+usage() {
+  cat <<'USAGE'
+usage: bash scripts/install.sh [--no-load]
+
+Builds, signs and installs bluehop for the current user. Run by a person, not an agent.
+Side effects: runs scripts/check.sh and scripts/build-release.sh, stops a running
+dev.kanziw.bluehop LaunchAgent (launchctl bootout) BEFORE replacing the binary at
+~/Library/Application Support/bluehop/bin/bluehop, and writes
+~/Library/LaunchAgents/dev.kanziw.bluehop.plist. Without --no-load it then runs doctor and,
+if it passes, starts the LaunchAgent: from then on messages are really relayed.
+
+  --no-load   place the files only; leaves the relay stopped
+  -h, --help  print this help and exit without doing anything
+USAGE
+}
+# 도움말은 다른 인자보다 먼저, 아무 일도 하기 전에 판정한다. 모르는 인자는 종료 코드 2.
+for a in "$@"; do case "$a" in -h|--help) usage; exit 0 ;; esac; done
+LOAD=1
+for a in "$@"; do
+  case "$a" in
+    --no-load) LOAD=0 ;;
+    *) echo "install.sh: unknown argument: $a (see --help)" >&2; exit 2 ;;
+  esac
+done
 cd "$(dirname "$0")/.."
-LOAD=1; [[ "${1:-}" == "--no-load" ]] && LOAD=0
 
 SUPPORT="$HOME/Library/Application Support/bluehop"
 BIN_DIR="$SUPPORT/bin"
