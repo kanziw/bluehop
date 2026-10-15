@@ -45,10 +45,10 @@ color(0x0F172A).setFill()
 CGRect(x: 0, y: 0, width: W, height: H).fill()
 
 text("bluehop", font("Menlo Bold", 84, .bold), .white, at: CGPoint(x: 80, y: 470))
-text("iMessage to Telegram relay for one chat", font("Helvetica Neue", 40, .regular), color(0xCBD5E1), at: CGPoint(x: 82, y: 405))
+text("iMessage to Telegram relay, one bot per chat", font("Helvetica Neue", 40, .regular), color(0xCBD5E1), at: CGPoint(x: 82, y: 405))
 
-bubble(CGRect(x: 80, y: 190, width: 360, height: 120), fill: color(0x2563EB), label: "one iMessage chat", tailRight: false)
-bubble(CGRect(x: 840, y: 190, width: 360, height: 120), fill: color(0x0EA5E9), label: "one Telegram chat", tailRight: true)
+bubble(CGRect(x: 80, y: 190, width: 360, height: 120), fill: color(0x2563EB), label: "each iMessage chat", tailRight: false)
+bubble(CGRect(x: 840, y: 190, width: 360, height: 120), fill: color(0x0EA5E9), label: "its own Telegram bot", tailRight: true)
 
 let arrow = NSBezierPath()
 arrow.lineWidth = 8
@@ -61,8 +61,10 @@ color(0x94A3B8).setStroke()
 arrow.stroke()
 text("your Mac", font("Menlo", 26, .regular), color(0x94A3B8), at: CGPoint(x: 640, y: 290), center: true)
 
-text("Swift · zero dependencies · no web UI · no open ports · no cloud", font("Helvetica Neue", 30, .regular),
-     color(0xE2E8F0), at: CGPoint(x: 640, y: 80), center: true)
+text("Swift · zero dependencies · no open ports · no bluehop-operated server", font("Helvetica Neue", 28, .regular),
+     color(0xE2E8F0), at: CGPoint(x: 640, y: 100), center: true)
+text("Runs on your Mac. Relayed bot messages are stored by Telegram, not end-to-end encrypted.", font("Helvetica Neue", 22, .regular),
+     color(0x94A3B8), at: CGPoint(x: 640, y: 55), center: true)
 
 NSGraphicsContext.restoreGraphicsState()
 try! rep.representation(using: .png, properties: [:])!.write(to: URL(fileURLWithPath: out))

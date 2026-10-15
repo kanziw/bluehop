@@ -36,7 +36,7 @@ Agents do not grant macOS permissions, do not enter or read the bot token, and d
 ## Layout
 - `Sources/BluehopCore/`: logic (under test). `Relay.swift` is the two-way engine for one mapping; `Supervisor.swift` runs one worker per mapping and reloads the config; `Config.swift` holds the mapping list, migration and guard rails; `MappingAdd.swift` the `mapping add` flow; `CLIArgs.swift` the argument parser and exit codes; `ChatPicker.swift` the terminal-free picker logic.
 - `Sources/BluehopCLI/`: `main.swift` (command table, help), `Commands.swift` (`run`, `chats`, `mapping list|add|remove|pause|resume|test`, `doctor`, `status`, `telegram-ids`, `resume`, diagnostics, `version`), `Terminal.swift` (raw-mode picker, hidden prompt).
-- CLI contract: every command has `--help`, unknown flags exit 2, `--json` output keys and exit codes are documented in README "CLI" and must stay stable (changing them is a breaking change).
+- CLI contract: every command and every script in `scripts/` handles `--help`/`-h` before anything else and exits 0 without side effects; unknown flags exit 2; `--json` output keys, the error codes in `ErrorCodes.catalog` (README "Machine-readable checks") and exit codes must stay stable (changing them is a breaking change). A new command needs a row in the side-effect table of `docs/AGENT-GUIDE.md` and an entry in `CLIBinaryTests.allCommands`.
 - `Tests/BluehopCoreTests/`: fixture chat.db, mock Telegram (URLProtocol), fake Messages sender.
 
 ## Identifiers
@@ -65,7 +65,8 @@ The binary is `bluehop`, the Swift targets are `BluehopCore` and `BluehopCLI`, i
 1. Move the `Unreleased` entries to `## [X.Y.Z] - YYYY-MM-DD` and update the compare links.
 2. Bump the version in `main.swift` and `Info.plist`; run `bash scripts/check.sh`.
 3. Commit `chore(release): vX.Y.Z`, tag `vX.Y.Z` (annotated), push the commit and the tag.
-4. Build with `bash scripts/build-release.sh` and attach `dist/bluehop` plus its SHA-256 to the GitHub release (signed and notarized release builds are a proposal, see `docs/PROPOSALS.md`).
+4. Create the GitHub release from the tag with the changelog section as notes. No binaries are attached until signed and notarized builds exist (`docs/PROPOSALS.md` §4).
+5. Publish the site: `bash scripts/publish-site.sh --push` (copies `docs/site/` and `llms.txt` to `gh-pages`), then check that `https://kanziw.dev/bluehop/`, `/llms.txt` and `/sitemap.xml` return 200.
 
 ## Maintainer note
 The public repository is [`kanziw/bluehop`](https://github.com/kanziw/bluehop). The maintainer develops in a separate private repository, where the maintainer and agents working for the maintainer commit directly to `main`, and exports cleaned releases to the public repository (`docs/PROPOSALS.md` §3). That is not a rule for public contributors, who use pull requests as above. Agents must not change any repository's visibility, settings or published metadata without the maintainer's explicit decision.

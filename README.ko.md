@@ -1,6 +1,6 @@
 # bluehop: iMessage 를 텔레그램으로, 대화마다 봇 하나로 잇는 중계기
 
-**bluehop** 은 iMessage 대화를 텔레그램 봇 대화로 전달하고, 텔레그램에서 쓴 답장을 같은 iMessage 대화로 보내는 **iMessage 텔레그램 중계기**입니다. 대화 하나만 이어도 되고 여러 개를 이어도 됩니다 — 이은 대화마다 텔레그램 봇이 하나씩이고, 프로세스 하나가 모두 중계합니다. "아이메시지를 텔레그램으로 받기", "iMessage 텔레그램 봇 전달"을 내 맥 한 대에서 직접(셀프 호스팅) 합니다. 서명된 Swift 바이너리 하나, 외부 라이브러리 0개, 웹 화면 없음, 열린 포트 없음, 클라우드 없음. 메시지 앱에 로그인된 내 맥에서 돕니다.
+**bluehop** 은 iMessage 대화를 텔레그램 봇 대화로 전달하고, 텔레그램에서 쓴 답장을 같은 iMessage 대화로 보내는 **iMessage 텔레그램 중계기**입니다. 대화 하나만 이어도 되고 여러 개를 이어도 됩니다 — 이은 대화마다 텔레그램 봇이 하나씩이고, 프로세스 하나가 모두 중계합니다. "아이메시지를 텔레그램으로 받기", "iMessage 텔레그램 봇 전달"을 내 맥 한 대에서 직접(셀프 호스팅) 합니다. 내 맥에서 직접 빌드하고 서명하는 Swift 바이너리 하나, 외부 라이브러리 0개, 웹 화면 없음, 열린 포트 없음. **bluehop 이 운영하는 서버는 없습니다. 내 맥에서 돌고, 중계된 봇 메시지는 텔레그램이 저장하며 종단간 암호화가 아닙니다.** 메시지 앱에 로그인된 내 맥에서 돕니다.
 
 > Apple Inc. 및 Telegram 과 제휴·보증·후원 관계가 없습니다. iMessage 와 Messages 는 Apple Inc. 의 상표이고, Telegram 은 해당 소유자의 상표입니다.
 
@@ -24,7 +24,7 @@ iMessage 로만 대화할 수 있는 상대가 있습니다. 예를 들어 iMess
 - **텔레그램 → iMessage:** 글, 사진, 음성(.ogg→.m4a), 영상, 파일(20MB 까지). 그 봇에 이은 대화로만 보냅니다. 보낸 뒤 메시지 앱 기록(chat.db)에서 확인하고, 실패만 ⚠️ 답글로 알립니다. 자동 재발송은 없고, 같은 텔레그램 메시지를 두 번 보내지 않습니다.
 - **여러 대화:** 연결("매핑") 하나는 iMessage 1:1 대화 하나와 그 대화 전용 텔레그램 봇 하나입니다. 매핑들은 한 프로세스에서 나란히 돌고 서로 격리됩니다 — 한 매핑의 토큰 폐기·네트워크 오류·안전 정지가 다른 매핑을 멈추지 않습니다. `bluehop mapping …` 으로 추가·조회·멈춤·삭제합니다.
 - iPhone 이나 다른 맥에서 직접 보낸 글도 `🙋 나:` 를 붙여 텔레그램에 보여 줍니다(`mirrorOwnMessages`, 기본 켬).
-- 봇 안내 문구·`doctor` 출력·로그는 지금 한국어입니다. 중계되는 본문은 그대로 전달됩니다.
+- 봇 안내 문구·로그는 지금 한국어입니다. `doctor`·`mapping test`·`status` 는 `--lang en`(또는 `BLUEHOP_LANG=en`)으로 영어 출력, `--json` 은 안정된 오류 코드를 냅니다. 중계되는 본문은 그대로 전달됩니다.
 
 ## 하지 않는 일
 
@@ -32,15 +32,15 @@ iMessage 로만 대화할 수 있는 상대가 있습니다. 예를 들어 iMess
 
 ## 다른 도구와 비교
 
-넷 다 메시지 앱에 로그인된 맥에서 `chat.db` 를 읽습니다. 아래 내용은 각 프로젝트의 README·공식 문서 기준입니다(2026-10-15 확인).
+넷 다 메시지 앱에 로그인된 맥에서 `chat.db` 를 읽습니다. 아래 내용은 각 프로젝트의 README·공식 문서 기준입니다(2026-10-15 확인, 칸 안에 출처 링크).
 
 | | bluehop | [chatwire](https://github.com/allenbina/chatwire) | [BlueBubbles](https://bluebubbles.app/) | [mautrix-imessage](https://github.com/mautrix/imessage) |
 |---|---|---|---|---|
 | 어디서 쓰나 | 이은 대화마다 텔레그램 봇 대화 하나 | 웹 화면, 텔레그램(플러그인), 푸시, 기타 플러그인 | 안드로이드·윈도우·리눅스·웹용 BlueBubbles 앱 | Matrix 클라이언트 |
 | 대화 범위 | 고른 1:1 대화들, 대화마다 봇 하나 | 전체(단체방 포함) | 전체(단체방 포함) | 전체(단체방 포함) |
-| 포트를 여나 | 아니오(텔레그램으로 나가는 HTTPS 만) | 예, 웹 화면. README 에 "기본은 인증 없음, 네트워크 단에서 막을 것"이라고 적혀 있음 | 예, 서버. 내장 프록시(ngrok, Cloudflare)나 포트 포워딩으로 접속 | Matrix 홈서버와 웹소켓 프록시 필요 |
+| 포트를 여나 | 아니오(텔레그램으로 나가는 HTTPS 만) | 예, 웹 화면. 기본은 인증 없음(네트워크 단에서 막을 것), 공유 비밀번호를 선택으로 걸 수 있음([README](https://github.com/allenbina/chatwire#web-ui-access)) | 예, 서버. 내장 프록시(ngrok, Cloudflare)나 포트 포워딩으로 접속 | 일반 맥 커넥터: Matrix 홈서버와 웹소켓 프록시 필요([설정](https://docs.mau.fi/bridges/go/imessage/mac/setup.html)). Beeper 계정이 있으면 `bbctl` 로 홈서버 없이 직접 호스팅([문서](https://docs.mau.fi/bridges/go/imessage/)) |
 | 기술 | Swift, 외부 패키지 0개 | Python + React | TypeScript(Node) | Go |
-| iMessage 로 진짜 답글·반응 보내기 | 안 됨(인용 글로 대신) | 해당 문서 참고 | Private API 로 가능, SIP 해제 필요 | 기본 macOS 커넥터는 불가, SIP 해제가 필요한 커넥터나 BlueBubbles 커넥터로 가능 |
+| iMessage 로 진짜 답글·반응 보내기 | 안 됨(인용 글로 대신) | 해당 문서 참고 | Private API 로 가능. SIP 해제는 Private API 기능에만 필요하고 나머지는 SIP 를 켠 채 동작([문서](https://docs.bluebubbles.app/private-api/installation)) | 일반 맥 커넥터는 불가(AppleScript 로 보냄). SIP·AMFI 를 끄는 Mac-without-SIP 커넥터나 [BlueBubbles 커넥터](https://github.com/mautrix/imessage/tree/master/imessage/bluebubbles)로 가능([문서](https://docs.mau.fi/bridges/go/imessage/)) |
 | 라이선스 | MIT | MIT | Apache-2.0(서버) | AGPL-3.0 |
 
 모든 대화나 풍부한 클라이언트가 필요하면 전체 브리지를, 고른 대화 몇 개를 텔레그램에서 가장 작은 공격면으로 쓰고 싶으면 bluehop 을 고르세요.
@@ -54,6 +54,8 @@ iMessage 로만 대화할 수 있는 상대가 있습니다. 예를 들어 iMess
 - 권장: 키체인의 Apple Development 또는 Developer ID 서명 인증서. 없으면 ad-hoc 서명이 되어 재설치마다 두 권한을 다시 허용해야 합니다.
 
 ## 설치
+
+준비물이 갖춰져 있으면 약 15분입니다: 전체 Xcode(수 GB, Command Line Tools 만으로는 `swift test` 를 못 돌림), 되도록 키체인의 Apple Development 또는 Developer ID 서명 인증서, 그리고 전체 디스크 접근·메시지 자동 제어 승인과 @BotFather 봇 만들기를 해 줄 사람이 맥 앞에 있어야 합니다. 아직 미리 빌드된 다운로드는 없고, 설치 스크립트가 내 맥에서 빌드하고 서명합니다.
 
 단계마다 확인 명령이 있는 전체 절차: **[docs/AGENT-GUIDE.md](docs/AGENT-GUIDE.md)**. 요약:
 
@@ -133,7 +135,7 @@ printf '%s\n' "$TOKEN" | "$B" mapping add --token-stdin --chat '+15555550123' --
 
 ## 보안 요지
 
-리스닝 소켓·웹 서버 없음. 나가는 곳은 코드에 고정된 `https://api.telegram.org` 하나. chat.db 는 읽기 전용, 모든 질의는 설정한 대화로 한정. 전체 디스크 접근은 서명된 이 바이너리에만. osascript 에는 고정 스크립트와 argv 만. 설정·상태·토큰 파일 0600. 로그에 본문·전화번호·토큰 없음. 남는 위험: 텔레그램 봇 대화는 종단간 암호화가 아니어서 중계된 내용이 텔레그램 서버에 남습니다. 자세히: [SECURITY.md](SECURITY.md).
+리스닝 소켓·웹 서버 없음. 나가는 곳은 코드에 고정된 `https://api.telegram.org` 하나. chat.db 는 읽기 전용, 모든 질의는 설정한 대화로 한정. 전체 디스크 접근은 서명된 이 바이너리에만. osascript 에는 고정 스크립트와 argv 만. 설정·상태·토큰 파일 0600. 로그에 본문·전화번호·토큰 없음. 남는 위험: bluehop 이 운영하는 서버는 없지만, 텔레그램 봇 대화는 종단간 암호화가 아니어서 중계된 내용이 텔레그램 서버에 남습니다. 자세히: [SECURITY.md](SECURITY.md).
 
 ## 운영
 

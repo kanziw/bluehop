@@ -1,6 +1,6 @@
 # bluehop: iMessage to Telegram relay, one bot per chat
 
-**bluehop** forwards an iMessage conversation to a Telegram bot chat and sends your Telegram replies back to that same iMessage conversation. Link one chat, or several: each linked chat gets its own Telegram bot, and one process relays them all. It is a tiny, self-hosted **iMessage Telegram relay** for macOS: one signed Swift binary, zero third-party dependencies, no web UI, no open ports, no cloud service. It runs on your own Mac that is signed in to Messages.
+**bluehop** forwards an iMessage conversation to a Telegram bot chat and sends your Telegram replies back to that same iMessage conversation. Link one chat, or several: each linked chat gets its own Telegram bot, and one process relays them all. It is a tiny, self-hosted **iMessage Telegram relay** for macOS: one Swift binary that you build and sign on your own Mac, zero third-party dependencies, no web UI, no open ports. **No bluehop-operated server. Runs on your Mac; relayed bot messages are stored by Telegram and are not end-to-end encrypted.** It runs on your own Mac that is signed in to Messages.
 
 > Not affiliated with, endorsed by, or sponsored by Apple Inc. or Telegram. iMessage and Messages are trademarks of Apple Inc. Telegram is a trademark of its respective owner.
 
@@ -24,7 +24,7 @@ Some conversations only exist in iMessage, for example an AI assistant that you 
 - **Telegram → iMessage:** text, photos, voice (.ogg converted to .m4a), video and files up to 20 MB, sent only to the conversation linked to that bot. After sending, the relay looks for the message in the Messages database; only failures get a ⚠️ reply. Nothing is resent automatically, and the same Telegram message is never sent twice.
 - **Several chats:** each link ("mapping") pairs one iMessage 1:1 chat with its own Telegram bot. Mappings run side by side in one process and are isolated: a revoked token, a network error or a safety halt in one mapping does not stop the others. Add, list, pause and remove them with `bluehop mapping …`.
 - Messages you send from your iPhone or another Mac are mirrored to Telegram with a `🙋 나:` ("me") prefix so the thread stays readable (`mirrorOwnMessages`, on by default).
-- **Language:** the bot's replies, `doctor` output and logs are currently in Korean. The relayed message text is passed through unchanged.
+- **Language:** the bot's replies, logs and most CLI text are currently in Korean. `doctor`, `mapping test` and `status` print English with `--lang en` (or `BLUEHOP_LANG=en`), and their `--json` output has stable error codes. The relayed message text is passed through unchanged.
 
 ## What it does not do
 
@@ -32,15 +32,15 @@ It is deliberately small. It is **not** an all-chats bridge (you pick each chat 
 
 ## How it compares
 
-All four run on a Mac signed in to Messages and read `chat.db`. Facts below come from each project's own README or docs (checked 2026-10-15).
+All four run on a Mac signed in to Messages and read `chat.db`. Facts below come from each project's own README or docs (checked 2026-10-15; sources linked in the cells).
 
 | | bluehop | [chatwire](https://github.com/allenbina/chatwire) | [BlueBubbles](https://bluebubbles.app/) | [mautrix-imessage](https://github.com/mautrix/imessage) |
 |---|---|---|---|---|
 | What you use it from | One Telegram bot chat per linked chat | Web UI, Telegram (plugin), push, other plugins | BlueBubbles apps for Android, Windows, Linux, web | Any Matrix client |
 | Chats | The 1:1 chats you pick, one bot each | All chats, including groups | All chats, including groups | All chats, including groups |
-| Listens on a port | No (outbound HTTPS to Telegram only) | Yes, web UI; its README says it has no auth by default and should be gated at the network layer | Yes, server; reached via a built-in proxy (ngrok, Cloudflare) or port forwarding | Needs a Matrix homeserver plus a websocket proxy |
+| Listens on a port | No (outbound HTTPS to Telegram only) | Yes, web UI: no auth by default, gate it at the network layer; an optional shared password can be set ([README](https://github.com/allenbina/chatwire#web-ui-access)) | Yes, server; reached via a built-in proxy (ngrok, Cloudflare) or port forwarding | Normal-Mac connector: needs a Matrix homeserver plus a websocket proxy ([setup](https://docs.mau.fi/bridges/go/imessage/mac/setup.html)). With a Beeper account, `bbctl` self-hosts the bridge without your own homeserver ([docs](https://docs.mau.fi/bridges/go/imessage/)) |
 | Stack | Swift, 0 third-party packages | Python + React | TypeScript (Node) | Go |
-| Real replies/tapbacks sent to iMessage | No (quoted text instead) | See its docs | Yes with its Private API, which requires disabling SIP | Not on the standard macOS connector; yes on connectors that need SIP disabled or BlueBubbles |
+| Real replies/tapbacks sent to iMessage | No (quoted text instead) | See its docs | Yes, with its Private API; SIP must be disabled only for Private API features, the rest runs with SIP on ([docs](https://docs.bluebubbles.app/private-api/installation)) | Not on the normal-Mac connector (sends with AppleScript); yes with the Mac-without-SIP connector (SIP and AMFI disabled) or the [BlueBubbles connector](https://github.com/mautrix/imessage/tree/master/imessage/bluebubbles) ([docs](https://docs.mau.fi/bridges/go/imessage/)) |
 | License | MIT | MIT | Apache-2.0 (server) | AGPL-3.0 |
 
 Choose a full bridge if you want every conversation or a rich client. Choose bluehop if you want a few chosen conversations in Telegram with the smallest possible attack surface.
@@ -54,6 +54,8 @@ Choose a full bridge if you want every conversation or a rich client. Choose blu
 - Recommended: an Apple Development or Developer ID signing certificate in your keychain. Without one the binary is ad-hoc signed and macOS asks for both permissions again after every reinstall.
 
 ## Install
+
+Plan on about fifteen minutes once the prerequisites are in place: full Xcode installed (several GB; the Command Line Tools alone cannot run `swift test`), ideally an Apple Development or Developer ID signing certificate in your keychain, and a person at the Mac to grant Full Disk Access and the Messages Automation prompt and to create the bot with @BotFather. There is no prebuilt download yet; the install script builds and signs the binary on your Mac.
 
 Step-by-step with a check after each step: **[docs/AGENT-GUIDE.md](docs/AGENT-GUIDE.md)**. Short version:
 
@@ -189,7 +191,7 @@ Safety rules, per mapping: the relay sends at most 20 messages a minute to Teleg
 
 ## Security model in short
 
-No listening sockets or web server. One outbound host, `https://api.telegram.org`, hard-coded and not configurable. chat.db is opened read-only (`SQLITE_OPEN_READONLY` plus `query_only`), and every query is limited to the configured chats. Only the signed binary gets Full Disk Access; no Python, shell, or plugins. osascript gets a fixed script with values as argv. Config, state and token files must be 0600. Logs contain row ids, counts and kinds, never message text, phone numbers, or the token. Residual risk: Telegram bot chats are not end-to-end encrypted, so relayed messages are stored on Telegram's servers. Details: [SECURITY.md](SECURITY.md).
+No listening sockets or web server. One outbound host, `https://api.telegram.org`, hard-coded and not configurable. chat.db is opened read-only (`SQLITE_OPEN_READONLY` plus `query_only`), and every query is limited to the configured chats. Only the signed binary gets Full Disk Access; no Python, shell, or plugins. osascript gets a fixed script with values as argv. Config, state and token files must be 0600. Logs contain row ids, counts and kinds, never message text, phone numbers, or the token. Residual risk: there is no bluehop-operated server, but Telegram bot chats are not end-to-end encrypted, so relayed messages are stored on Telegram's servers. Details: [SECURITY.md](SECURITY.md).
 
 ## Operate
 

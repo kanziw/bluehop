@@ -4,9 +4,11 @@ Applied when the public repository was created (2026-10-15, see `docs/PROPOSALS.
 
 **Description** (≤ 350 characters):
 
-> iMessage to Telegram relay for one chat. Forward one iMessage conversation to a Telegram bot and reply from Telegram. Tiny macOS Swift binary: zero dependencies, no web UI, no open ports, no cloud, SIP stays on.
+> iMessage to Telegram relay, one bot per chat. Forward the iMessage 1:1 chats you choose to Telegram bots and reply from Telegram. Tiny macOS Swift binary you build on your Mac: zero dependencies, no open ports, no bluehop-operated server, SIP stays on. Bot messages are stored by Telegram (not E2EE).
 
-**Website:** the GitHub Pages site, built from `docs/site/` and published on the `gh-pages` branch. The account's Pages domain makes it <https://kanziw.dev/bluehop/> (`https://kanziw.github.io/bluehop/` redirects there).
+The live description (set when 0.5.0 shipped) still says "no cloud"; replace it with the text above by hand (Settings → General, or `gh repo edit kanziw/bluehop --description …`). Changing published metadata is the maintainer's decision.
+
+**Website:** the GitHub Pages site, built from `docs/site/` (plus `llms.txt` from the repo root) and published on the `gh-pages` branch with `bash scripts/publish-site.sh --push`. It serves `index.html`, `llms.txt`, `sitemap.xml` and `social-preview.png`. Crawlers read `robots.txt` only at the host root, `https://kanziw.dev/robots.txt`, which comes from the account's Pages site (`kanziw/kanziw.github.io`) behind Cloudflare; its `Sitemap:` line points to `https://kanziw.dev/bluehop/sitemap.xml`. The account's Pages domain makes it <https://kanziw.dev/bluehop/> (`https://kanziw.github.io/bluehop/` redirects there).
 
 **Topics** (10; GitHub allows up to 20, lowercase, hyphens):
 
