@@ -5,6 +5,8 @@ All notable changes to this project are documented here. The format follows [Kee
 ## [Unreleased]
 
 ### Fixed
+- Links from iMessage arrived in Telegram as a mess: every link preview bubble was relayed as one to three unopenable `<UUID>.pluginPayloadAttachment` files (the preview's icon and image) followed by a bare URL with no title. A link bubble is now one Telegram message, `🔗 <title>` and the original URL, with Telegram's link preview turned on for that URL only. The title comes from the bubble's `payload_data`; without it the URL alone is sent. Other messages keep previews off, so a text with several links no longer risks a preview of the wrong one. A link bubble no longer waits for its preview images to download. An iMessage app bubble with no text and only app data is reported in one line instead of as files.
+- When the other side answered one message with several bubbles, every bubble quoted the same original in Telegram. Only the first bubble of such a run is a Telegram reply now; the rest follow it. A reply after any other message in between quotes the original again. The reply links are still stored, so reactions and replies keep working.
 - `bluehop status` reported a running service as "loaded, not running" (`service.running: false`, `pid: null`). It read `state = active` from the nested coalition blocks of `launchctl print`, which come after the service's own `state = running`. Only the service's own lines count now.
 
 ## [0.5.2] - 2026-10-15

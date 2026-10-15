@@ -27,7 +27,16 @@ public struct IMMessage: Equatable {
     public var isRetracted: Bool
     /// message.error — 0 이 아니면 메시지 앱이 보내기 실패로 표시한 것
     public var errorCode: Int = 0
+    /// 사람이 보낸 첨부만. 말풍선 앱 자료(`*.pluginPayloadAttachment`, 링크 미리보기 그림 등)는 읽을 때 뺀다.
     public var attachments: [IMAttachment]
+    /// message.balloon_bundle_id — 링크 말풍선이면 `RichLink.urlBalloonBundleID`.
+    public var balloonBundleID: String? = nil
+    /// 링크 말풍선의 제목 등(`payload_data`). 링크 말풍선이 아니거나 읽지 못하면 nil.
+    public var linkMetadata: RichLink.Metadata? = nil
+    /// 읽을 때 뺀 말풍선 앱 자료 첨부 수(행이 통째로 비어 보이는지 판단용).
+    public var pluginPayloadCount: Int = 0
+
+    public var isURLBalloon: Bool { balloonBundleID == RichLink.urlBalloonBundleID }
 
     public var isReaction: Bool { (2000...3999).contains(associatedType) }
 }
@@ -105,7 +114,8 @@ public final class ChatDB {
     private static let messageColumns = """
         m.ROWID, m.guid, m.is_from_me, m.text, m.attributedBody, m.thread_originator_guid,
         m.thread_originator_part, m.associated_message_type, m.associated_message_guid,
-        m.associated_message_emoji, m.is_audio_message, m.item_type, m.date_retracted, m.error
+        m.associated_message_emoji, m.is_audio_message, m.item_type, m.date_retracted, m.error,
+        m.balloon_bundle_id, m.payload_data
         """
 
     public func messages(after cursor: Int64, chat: ChatInfo, limit: Int = 50) throws -> [IMMessage] {
@@ -118,7 +128,9 @@ public final class ChatDB {
             """, [.int(chat.rowid), .int(cursor), .int(Int64(limit))], map: Self.mapMessage)
         return try rows.map { msg in
             var msg = msg
-            msg.attachments = try attachments(messageRowID: msg.rowid)
+            let all = try attachments(messageRowID: msg.rowid)
+            msg.attachments = all.filter { !RichLink.isPluginPayload(transferName: $0.transferName) }
+            msg.pluginPayloadCount = all.count - msg.attachments.count
             return msg
         }
     }
@@ -137,6 +149,7 @@ public final class ChatDB {
         if text == nil || text!.isEmpty, let blob = r.blob(4) {
             text = AttributedBody.extractText(blob)
         }
+        let balloon = r.text(14).flatMap { $0.isEmpty ? nil : $0 }
         return IMMessage(
             rowid: r.int(0) ?? 0,
             guid: r.text(1) ?? "",
@@ -151,7 +164,9 @@ public final class ChatDB {
             itemType: Int(r.int(11) ?? 0),
             isRetracted: (r.int(12) ?? 0) != 0,
             errorCode: Int(r.int(13) ?? 0),
-            attachments: []
+            attachments: [],
+            balloonBundleID: balloon,
+            linkMetadata: balloon == RichLink.urlBalloonBundleID ? r.blob(15).flatMap(RichLink.parse(payload:)) : nil
         )
     }
 

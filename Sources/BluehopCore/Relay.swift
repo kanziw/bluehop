@@ -69,6 +69,11 @@ public final class Relay {
     public private(set) var chat: ChatInfo?
     var failedAttempts: [Int64: Int] = [:]
     var editNoticeSent: Set<Int64> = []
+    /// 바로 앞에 텔레그램에 올린 iMessage 글이 답글로 이어 붙은 원글(`tg:<텔레그램 id>` 또는 `im:<guid>`).
+    /// 상대가 한 글에 여러 말풍선으로 연달아 답하면 첫 말풍선만 원글에 답글로 걸고, 사이에 다른 글이
+    /// 끼지 않은 나머지는 그냥 이어 보낸다. 메모리에만 둔다 — 재시작 뒤 첫 말풍선이 한 번 더 답글로
+    /// 걸리는 것 말고는 잃는 것이 없다(답글 관계 매핑은 그대로 저장된다).
+    var lastIMThread: String?
     var lastCleanup: Double = 0
     /// 연속된 getUpdates 실패 횟수(일꾼마다 따로 물러선다).
     var telegramFailures = 0
@@ -301,6 +306,8 @@ public final class Relay {
             await handle(command: rawText, messageID: m.message_id)
             return
         }
+        // 텔레그램 쪽에 내 글이 끼었으니, 다음 iMessage 답글은 다시 원글에 답글로 건다.
+        lastIMThread = nil
         // 멱등성: 이미 다룬 텔레그램 메시지는 어떤 이유로든 다시 보내지 않는다.
         if (try? state.hasOutbox(tgMessageID: m.message_id)) ?? true { return }
 
@@ -678,6 +685,12 @@ public final class Relay {
                 quote = Self.quotePrefix(original.text) + "\n"
             }
         }
+        // 같은 원글에 연달아 단 답글은 첫 말풍선만 답글로 건다(텔레그램은 말풍선마다 인용 머리를 그린다).
+        let thread = m.threadOriginatorGuid.map { origin in replyTo.map { "tg:\($0)" } ?? "im:\(origin)" }
+        if thread != nil, thread == lastIMThread {
+            replyTo = nil
+            quote = ""
+        }
         let own = m.isFromMe ? Self.ownPrefix : ""
         var part = 0
         // 이미 보낸 부분(앞선 시도에서 일부만 성공)은 건너뛴다 → 재시도해도 중복 없음.
@@ -688,10 +701,13 @@ public final class Relay {
             }
             part += 1
         }
-        if !m.text.isEmpty, try !state.hasMapping(imsgGuid: m.guid, part: part) {
-            let id = try await sendTG(own + quote + m.text, replyTo: m.attachments.isEmpty ? replyTo : nil)
+        let body = Self.telegramBody(of: m)
+        if !body.text.isEmpty, try !state.hasMapping(imsgGuid: m.guid, part: part) {
+            let id = try await sendTG(own + quote + body.text, replyTo: m.attachments.isEmpty ? replyTo : nil,
+                                      linkPreviewURL: body.previewURL)
             try state.saveMapping(imsgGuid: m.guid, part: part, tgMessageID: id, direction: "im->tg", now: clock.now)
         }
+        if !m.attachments.isEmpty || !body.text.isEmpty { lastIMThread = thread }
         return .done
     }
 
@@ -744,6 +760,7 @@ public final class Relay {
         if m.isFromMe {
             // 내 반응은 봇 반응으로 달면 상대 반응처럼 보이므로 글로만 보인다.
             guard options.mirrorOwnMessages, tb.action == .add else { return .done }
+            lastIMThread = nil
             _ = try await sendTG(Self.ownPrefix + "\(label) 반응" + (target == nil ? " " + (try quoteOf(tb.targetGuid)) : ""), replyTo: target)
             return .done
         }
@@ -758,6 +775,7 @@ public final class Relay {
                     // 봇이 못 다는 반응 → 아래 글 대체로
                 }
             }
+            lastIMThread = nil
             _ = try await sendTG("\(label) 반응" + (target == nil ? " " + (try quoteOf(tb.targetGuid)) : ""), replyTo: target)
         case .remove:
             if let target, try state.reaction(onTG: target) != nil {
@@ -782,7 +800,18 @@ public final class Relay {
         try state.setReaction(onTG: target, emoji)
     }
 
-    func sendTG(_ text: String, replyTo: Int64?) async throws -> Int64 {
+    /// iMessage 행을 텔레그램 글로 옮길 모양. 링크 말풍선은 제목·주소 한 통 + 미리보기,
+    /// 내용 없이 말풍선 앱 자료만 있는 행은 무엇을 못 옮겼는지 한 줄로 남긴다(조용히 사라지지 않게).
+    static func telegramBody(of m: IMMessage) -> (text: String, previewURL: String?) {
+        if m.isURLBalloon { return RichLink.telegramText(body: m.text, metadata: m.linkMetadata) }
+        if m.text.isEmpty, m.attachments.isEmpty, let bundle = m.balloonBundleID {
+            let app = bundle.split(separator: ":").last.map(String.init) ?? bundle
+            return ("[iMessage 앱 메시지라 옮기지 못함: \(app)]", nil)
+        }
+        return (m.text, nil)
+    }
+
+    func sendTG(_ text: String, replyTo: Int64?, linkPreviewURL: String? = nil) async throws -> Int64 {
         guard toTGBreaker.allow() else {
             await halt("10분 동안 텔레그램으로 \(options.limits.toTelegramPerWindow)건 넘게 보내려 함")
             throw SendError("안전 정지")
@@ -792,7 +821,8 @@ public final class Relay {
         let chunks = Self.chunk(text, size: 4000)
         var first: Int64?
         for c in chunks {
-            let id = try await telegram.sendMessage(c, replyTo: first == nil ? replyTo : first)
+            let id = try await telegram.sendMessage(c, replyTo: first == nil ? replyTo : first,
+                                                    linkPreviewURL: first == nil ? linkPreviewURL : nil)
             if first == nil { first = id }
         }
         return first!

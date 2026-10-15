@@ -41,7 +41,7 @@ final class FixtureChatDB {
                 associated_message_guid TEXT, associated_message_type INTEGER DEFAULT 0, associated_message_emoji TEXT,
                 thread_originator_guid TEXT, thread_originator_part TEXT, date_retracted INTEGER,
                 is_sent INTEGER DEFAULT 0, is_delivered INTEGER DEFAULT 0, service TEXT DEFAULT 'iMessage',
-                cache_has_attachments INTEGER DEFAULT 0, balloon_bundle_id TEXT, expire_state INTEGER DEFAULT 0);
+                cache_has_attachments INTEGER DEFAULT 0, balloon_bundle_id TEXT, expire_state INTEGER DEFAULT 0, payload_data BLOB);
             CREATE TABLE chat_message_join (chat_id INTEGER, message_id INTEGER, message_date INTEGER DEFAULT 0, PRIMARY KEY (chat_id, message_id));
             CREATE TABLE attachment (ROWID INTEGER PRIMARY KEY AUTOINCREMENT, guid TEXT UNIQUE NOT NULL, filename TEXT,
                 uti TEXT, mime_type TEXT, transfer_name TEXT, total_bytes INTEGER DEFAULT 0, is_sticker INTEGER DEFAULT 0,

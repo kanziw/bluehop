@@ -26,7 +26,18 @@
 | 메시지 앱은 보낸 한글을 NFD 로, `text` 를 비우고 `attributedBody` 에만 적는다 | `testObservedNFDFixtureShape`, `testEchoesWrittenAsNFDAttributedBodyAllMatch` |
 | 줄바꿈이 U+2028 로, 따옴표·대시가 둥근 꼴로 적힐 수 있다 | `testMultilineTextEchoedWithUnicodeLineSeparatorStillMatches`, `testSmartPunctuationEchoStillMatches` |
 | 상대 답글의 `thread_originator_part`: 첨부 행이면 `0:0:1`, 글 행이면 `0:0:<길이>` — 둘 다 원래 텔레그램 글에 답글로 잇는다 | `testCounterpartRepliesToPhotoAndCaptionThreadOnTelegram`, `testReplyUsesMappedTelegramMessage` |
+| 상대가 한 글에 여러 말풍선으로 연달아 답하면 행마다 같은 `thread_originator_guid` 가 붙는다(반응 행이 사이에 낄 수 있다, 2026-10-15). 텔레그램에는 첫 말풍선만 답글로 건다 | `RichLinkRelayTests.testObservedLinkReplyRunBecomesOneLinkCardAndOneReplyHeader`, `testReplyHeaderReturnsAfterAnotherMessageInterleaves` |
 | 상대 반응 행은 `text` 가 차 있고(`Loved …`) `associated_message_guid=p:0/<GUID>`, 기본 반응은 emoji NULL — 글로 중계하지 않고 반응으로 단다 | `testCounterpartReactionRowWithTextBecomesReactionOnly`, `testTapbacksBecomeTelegramReactions` |
+
+## 링크 (2026-10-15, macOS 26.0.1)
+
+| 사실 | 테스트 |
+|---|---|
+| 링크 말풍선은 앞뒤 글과 따로 한 행이다. `balloon_bundle_id = com.apple.messages.URLBalloonProvider`, 본문 = 주소 그대로(`text` 가 NULL 이고 `attributedBody` 에만 있을 때도 있다) | `testLinkBalloonWithBodyOnlyInAttributedBodyIsNotHeldForPreviewImages` |
+| 미리보기 아이콘·대표 그림이 그 행의 첨부(1~3개)로 붙는다: 이름 `<UUID>.pluginPayloadAttachment`, `mime_type` NULL, `uti = dyn.age81a5dzq7y066dbtf0g82peqf4hk2pdrb00n5xy`, 내용은 PNG/ICO. 파일로 올리면 텔레그램에 열 수 없는 문서가 쌓인다 | `testObservedLinkReplyRunBecomesOneLinkCardAndOneReplyHeader` |
+| 제목·사이트·요약은 `payload_data`(NSKeyedArchiver) `root(RichLink) → richLinkMetadata(LPLinkMetadata)` 의 `title`·`siteName`·`summary`·`URL`·`originalURL`(NSURL = `NS.base`/`NS.relative`). `URL` 은 정규화된 주소라 원래 주소(쿼리 포함)와 다를 수 있다 | `RichLinkParsingTests.testParsesObservedPayloadShape` |
+| 내가 iPhone 에서 보낸 링크 행은 첨부 없이 메타데이터 없는 `RichLink` 자리표시 payload 만 있고, 뒤따른 글은 다른 행이 된다 | `testOwnLinkBalloonFromIPhoneIsMirroredAsURL` |
+| 같은 주소가 링크 말풍선 행과 옆 글 행에 겹쳐 적힌 경우는 이 대화에서 보지 못했다(옆 글에 든 주소는 다른 링크였다) | — |
 
 ## 서비스 상태 (`launchctl print`)
 

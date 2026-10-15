@@ -195,8 +195,11 @@ public final class TelegramClient {
     }
 
     @discardableResult
-    public func sendMessage(_ text: String, replyTo: Int64? = nil) async throws -> Int64 {
-        var p: [String: Any] = ["chat_id": chatID, "text": text, "link_preview_options": ["is_disabled": true]]
+    /// 글은 서식 없이(parse_mode 없음) 보낸다. 링크 미리보기는 기본으로 끄고, `linkPreviewURL` 을 주면
+    /// 그 주소 하나로만 켠다(글에 다른 링크가 있어도 엉뚱한 첫 링크를 잡지 않게).
+    public func sendMessage(_ text: String, replyTo: Int64? = nil, linkPreviewURL: String? = nil) async throws -> Int64 {
+        let preview: [String: Any] = linkPreviewURL.map { ["url": $0] } ?? ["is_disabled": true]
+        var p: [String: Any] = ["chat_id": chatID, "text": text, "link_preview_options": preview]
         if let rp = replyParams(replyTo) { p["reply_parameters"] = rp }
         return try await call("sendMessage", p, as: TGSent.self).message_id
     }

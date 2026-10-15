@@ -178,11 +178,14 @@ final class ObservedShapeTests: XCTestCase {
         await h.relay.tick()
         let rows = try h.fixture.db.query("SELECT guid FROM message WHERE is_from_me = 1 ORDER BY ROWID") { $0.text(0)! }
         XCTAssertEqual(rows.count, 2)
+        // 같은 원글에 연달아 단 답글은 첫 말풍선만 답글로 걸므로(RichLinkRelayTests), 사이에 다른 글을 끼워
+        // 두 답글이 각각 원글을 찾는지 본다.
         try h.fixture.insert(text: "사진 답", threadOriginator: rows[0], threadPart: "0:0:1")
+        try h.fixture.insert(text: "사이에 낀 글")
         try h.fixture.insert(text: "글 답", threadOriginator: rows[1], threadPart: "0:0:6")
         await h.relay.tick()
-        let replies = MockTelegram.calls("sendMessage").suffix(2).map { ($0.json["reply_parameters"] as? [String: Any])?["message_id"] as? Int64 }
-        XCTAssertEqual(replies, [42, 42])
+        let replies = MockTelegram.calls("sendMessage").suffix(3).map { ($0.json["reply_parameters"] as? [String: Any])?["message_id"] as? Int64 }
+        XCTAssertEqual(replies, [42, nil, 42])
     }
 
     /// 실측: 상대의 반응 행은 text 가 비어 있지 않고(예: `Loved “…”`) associated_message_guid 가 `p:0/<36자 GUID>`,
