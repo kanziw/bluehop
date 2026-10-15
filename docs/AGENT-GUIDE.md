@@ -132,7 +132,7 @@ bash scripts/install.sh
 "$B" status --json
 tail -n 20 "$HOME/Library/Logs/bluehop.log"
 ```
-Expect `service.running: true` and, within a few seconds, `verdict: "ok"` for every enabled mapping. Log lines: `시작 v0.5.0 매핑 N개(켜짐 N개)`, then per mapping `[<id>] 일꾼 띄움`, `[<id>] 시작 halted=false`; the first start of a mapping also logs `기준선 커서 설정` and `텔레그램 기준선 설정`. The log never contains message text. Then the human sends `/status` in the bot chat and gets `▶️ 동작 중`. Do not send test messages to the real contact without the human's say-so.
+Expect `service.running: true` and, within a few seconds, `verdict: "ok"` for every enabled mapping. Log lines: `시작 v<version> 매핑 N개(켜짐 N개)`, then per mapping `[<id>] 일꾼 띄움`, `[<id>] 시작 halted=false`; the first start of a mapping also logs `기준선 커서 설정` and `텔레그램 기준선 설정`. The log never contains message text. Then the human sends `/status` in the bot chat and gets `▶️ 동작 중`. Do not send test messages to the real contact without the human's say-so.
 
 ## 7. Link another chat
 

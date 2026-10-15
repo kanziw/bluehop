@@ -4,6 +4,8 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+## [0.5.1] - 2026-10-15
+
 ### Fixed
 - `--help` and `-h` win over everything else before `--`: after an unknown flag (`run --bogus --help`) and in the value slot of another flag (`run --config -h`), the command prints its help and exits 0 before doing anything. Before, `run --config -h` took `-h` as the config path and started the relay startup path.
 
@@ -85,7 +87,8 @@ First public release of **bluehop**. Earlier versions were developed privately a
 ### Added
 - First version: one iMessage 1:1 chat ↔ one Telegram chat, read-only chat.db reader, Telegram client, CLI (`run`, `doctor`, `telegram-ids`, `list-chats`, `resume`), signed build, LaunchAgent install scripts.
 
-[Unreleased]: https://github.com/kanziw/bluehop/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/kanziw/bluehop/compare/v0.5.1...HEAD
+[0.5.1]: https://github.com/kanziw/bluehop/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/kanziw/bluehop/compare/v0.4.1...v0.5.0
 [0.4.1]: https://github.com/kanziw/bluehop/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/kanziw/bluehop/releases/tag/v0.4.0
