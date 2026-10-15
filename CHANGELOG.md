@@ -4,6 +4,8 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+## [0.5.2] - 2026-10-15
+
 ### Added
 - A second, structured log: `~/Library/Logs/bluehop-events.jsonl`, one JSON object per line (timestamp, level, mapping, the relevant Telegram/chat.db correlation id), covering every step of a request — received, send start/end with its duration, echo wait/match/give-up, warning sent, reaction/attachment handling, `getUpdates` errors and retries, and start/halt/resume. It rotates itself by size (10 MB × 5 files). `bluehop status` and `doctor` now print both log paths and the active level. Levels are `info` (default) and `debug` (`BLUEHOP_LOG_LEVEL=debug`); message text, phone numbers, Apple IDs and the token are never written by default, and a couple of events can additionally carry text only when `BLUEHOP_LOG_BODIES=1` is set together with `debug`.
 - `scripts/collect-logs.sh`: bundles both logs into a `.tar.gz` for a bug report (read-only, no Full Disk Access needed), dropping any line that the debug body opt-in may have added as a second line of defense.
@@ -94,7 +96,8 @@ First public release of **bluehop**. Earlier versions were developed privately a
 ### Added
 - First version: one iMessage 1:1 chat ↔ one Telegram chat, read-only chat.db reader, Telegram client, CLI (`run`, `doctor`, `telegram-ids`, `list-chats`, `resume`), signed build, LaunchAgent install scripts.
 
-[Unreleased]: https://github.com/kanziw/bluehop/compare/v0.5.1...HEAD
+[Unreleased]: https://github.com/kanziw/bluehop/compare/v0.5.2...HEAD
+[0.5.2]: https://github.com/kanziw/bluehop/compare/v0.5.1...v0.5.2
 [0.5.1]: https://github.com/kanziw/bluehop/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/kanziw/bluehop/compare/v0.4.1...v0.5.0
 [0.4.1]: https://github.com/kanziw/bluehop/compare/v0.4.0...v0.4.1
