@@ -1,7 +1,7 @@
 import Foundation
 import BluehopCore
 
-let version = "0.5.3"
+let version = "0.5.4"
 
 // MARK: - 출력
 

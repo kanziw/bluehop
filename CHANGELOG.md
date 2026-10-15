@@ -4,6 +4,14 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+## [0.5.4] - 2026-10-15
+
+### Fixed
+- When the other side changed their tapback on the same message (e.g. 👀 then ✅), the new reaction often fell back to a reply ("✅ 반응") because the Bot API's 73-emoji reaction list has no ✅, leaving the stale 👀 reaction on screen — it looked like reactions were simply broken. The alias table that maps common emoji to the nearest allowed one (previously just 😂→🤣, ❓→🤔) is now much wider, covering check marks (✅ ☑️ ✔️ → 👌), emphasis (‼️ ❗ ❕ → ⚡), smiling/laughing/sad faces and a few others (see the table in `Reactions.swift`), and skin-tone variants of an already-allowed emoji (e.g. 👍🏽) are recognized too. A genuinely unmapped emoji still falls back to a reply, but any reaction the bot had already set on that message is cleared first, since chat.db reports a changed tapback as a new row with no corresponding "removed" row for the old one.
+
+### Added
+- Structured events for the outcome of handling an iMessage tapback: `tg_reaction_set` (emoji actually used, what it was mapped from) on success, `tg_reaction_set_failed` when Telegram rejects it, `tg_reaction_fallback_text` when a reply is sent instead, and `tg_reaction_clear_failed` if clearing a stale reaction before the fallback did not go through.
+
 ## [0.5.3] - 2026-10-15
 
 ### Fixed
@@ -104,7 +112,8 @@ First public release of **bluehop**. Earlier versions were developed privately a
 ### Added
 - First version: one iMessage 1:1 chat ↔ one Telegram chat, read-only chat.db reader, Telegram client, CLI (`run`, `doctor`, `telegram-ids`, `list-chats`, `resume`), signed build, LaunchAgent install scripts.
 
-[Unreleased]: https://github.com/kanziw/bluehop/compare/v0.5.3...HEAD
+[Unreleased]: https://github.com/kanziw/bluehop/compare/v0.5.4...HEAD
+[0.5.4]: https://github.com/kanziw/bluehop/compare/v0.5.3...v0.5.4
 [0.5.3]: https://github.com/kanziw/bluehop/compare/v0.5.2...v0.5.3
 [0.5.2]: https://github.com/kanziw/bluehop/compare/v0.5.1...v0.5.2
 [0.5.1]: https://github.com/kanziw/bluehop/compare/v0.5.0...v0.5.1
