@@ -93,11 +93,11 @@ final class IMessageToTelegramTests: XCTestCase {
         let (_, target) = try h.fixture.insert(text: "강조할 글")
         await h.relay.tick()
         let tgID = try XCTUnwrap(h.state.tgMessageID(forGuid: target))
-        try h.fixture.insert(assocType: 2004, assocGuid: "p:0/\(target)")  // ‼️ 는 봇 반응 목록에 없음
+        try h.fixture.insert(assocType: 2006, assocGuid: "p:0/\(target)", assocEmoji: "🦖")  // 정말 대응이 없는 이모지
         await h.relay.tick()
         XCTAssertTrue(MockTelegram.calls("setMessageReaction").isEmpty)
         let m = MockTelegram.calls("sendMessage").last!
-        XCTAssertEqual(m.json["text"] as? String, "‼️ 반응")
+        XCTAssertEqual(m.json["text"] as? String, "🦖 반응")
         XCTAssertEqual((m.json["reply_parameters"] as? [String: Any])?["message_id"] as? Int64, tgID)
     }
 
@@ -110,6 +110,77 @@ final class IMessageToTelegramTests: XCTestCase {
         try h.fixture.insert(assocType: 2001, assocGuid: "p:0/\(target)")
         await h.relay.tick()
         XCTAssertEqual(MockTelegram.calls("sendMessage").last!.json["text"] as? String, "👍 반응")
+    }
+
+    /// 상대가 같은 글에 반응을 바꾸면(관측: 옛 associated-message 행이 chat.db 에서 사라지고 "지움" 행은
+    /// 오지 않는다 — remove 이벤트 없이 add 행 하나만 새로 온다) 매핑만 있으면 그대로 교체된다. 텔레그램
+    /// 봇은 반응을 하나만 들고 있어서 `setMessageReaction` 을 다시 부르는 것 자체가 교체다.
+    func testReactionChangeReplacesPreviousTelegramReaction() async throws {
+        let h = try Harness.make()
+        try await h.relay.start()
+        let (_, target) = try h.fixture.insert(text: "반응 바뀔 글")
+        await h.relay.tick()
+        let tgID = try XCTUnwrap(h.state.tgMessageID(forGuid: target))
+
+        try h.fixture.insert(assocType: 2006, assocGuid: "p:0/\(target)", assocEmoji: "👀")
+        await h.relay.tick()
+        XCTAssertEqual(MockTelegram.calls("setMessageReaction").count, 1)
+        let sendMessageCountBeforeChange = MockTelegram.calls("sendMessage").count
+
+        // ✅ 는 허용 목록에 없지만 별칭으로 👌 에 대응한다 — 대체 글로 안 빠지고 그대로 교체된다.
+        try h.fixture.insert(assocType: 2006, assocGuid: "p:0/\(target)", assocEmoji: "✅")
+        await h.relay.tick()
+        XCTAssertEqual(MockTelegram.calls("sendMessage").count, sendMessageCountBeforeChange)  // 대체 글 없음
+        let calls = MockTelegram.calls("setMessageReaction")
+        XCTAssertEqual(calls.count, 2)
+        let last = calls.last!
+        XCTAssertEqual(last.json["message_id"] as? Int64, tgID)
+        XCTAssertEqual(((last.json["reaction"] as? [[String: Any]])?.first)?["emoji"] as? String, "👌")
+        XCTAssertEqual(try h.state.reaction(onTG: tgID), "👌")
+    }
+
+    /// 대응이 없는 이모지로 반응이 바뀌면 대체 글을 보내되, 화면에 옛 반응(👀)이 그대로 남지 않도록
+    /// 봇이 걸어 둔 반응을 먼저 지운다.
+    func testReactionChangeToUnmappedEmojiClearsStaleBotReactionBeforeFallback() async throws {
+        let h = try Harness.make()
+        try await h.relay.start()
+        let (_, target) = try h.fixture.insert(text: "반응 바뀔 글")
+        await h.relay.tick()
+        let tgID = try XCTUnwrap(h.state.tgMessageID(forGuid: target))
+
+        try h.fixture.insert(assocType: 2006, assocGuid: "p:0/\(target)", assocEmoji: "👀")
+        await h.relay.tick()
+        XCTAssertEqual(try h.state.reaction(onTG: tgID), "👀")
+
+        try h.fixture.insert(assocType: 2006, assocGuid: "p:0/\(target)", assocEmoji: "🦖")
+        await h.relay.tick()
+
+        let reactionCalls = MockTelegram.calls("setMessageReaction")
+        XCTAssertEqual(reactionCalls.count, 2)
+        XCTAssertEqual((reactionCalls.last!.json["reaction"] as? [Any])?.count, 0)  // 지움
+        XCTAssertEqual(MockTelegram.calls("sendMessage").last!.json["text"] as? String, "🦖 반응")
+        XCTAssertNil(try h.state.reaction(onTG: tgID))
+    }
+
+    /// 반응 처리 결과는 사건 로그에 남는다 — 성공은 `tg_reaction_set`, 대체 글은 `tg_reaction_fallback_text`.
+    func testReactionOutcomesAreLogged() async throws {
+        let path = makeTempDir().appendingPathComponent("events.jsonl").path
+        let events = EventLog(file: RotatingFileLog(path: path), level: .info, logBodies: false)
+        let h = try Harness.make(events: events)
+        try await h.relay.start()
+        let (_, target) = try h.fixture.insert(text: "글")
+        await h.relay.tick()
+
+        try h.fixture.insert(assocType: 2000, assocGuid: "p:0/\(target)")  // ❤️ — 바로 대응됨
+        await h.relay.tick()
+        try h.fixture.insert(assocType: 2006, assocGuid: "p:0/\(target)", assocEmoji: "🦖")  // 대응 없음 → 대체
+        await h.relay.tick()
+        h.relay.events?.close()
+
+        let logged = try String(contentsOfFile: path, encoding: .utf8)
+        XCTAssertTrue(logged.contains("\"event\":\"tg_reaction_set\""), logged)
+        XCTAssertTrue(logged.contains("\"emoji\":\"❤\""), logged)
+        XCTAssertTrue(logged.contains("\"event\":\"tg_reaction_fallback_text\""), logged)
     }
 
     func testVoiceMemoIsConvertedAndSentAsVoice() async throws {

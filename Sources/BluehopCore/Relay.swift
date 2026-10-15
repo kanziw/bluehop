@@ -772,19 +772,41 @@ public final class Relay {
             if let target, let emoji = tb.emoji, let tgEmoji = TelegramReactions.telegramEmoji(for: emoji) {
                 do {
                     try await setReaction(target, tgEmoji)
+                    logEvent(.info, "tg_reaction_set", ["tg_message_id": .int(target), "emoji": .string(tgEmoji), "mapped_from": .string(emoji)])
                     return .done
-                } catch TelegramError.api {
-                    // 봇이 못 다는 반응 → 아래 글 대체로
+                } catch TelegramError.api(let method, let code, _) {
+                    // 봇이 못 다는 반응 → 아래 글 대체로. 원격에 아직 남아 있을 옛 반응은 같이 지운다
+                    // (실제 iMessage 쪽 반응은 이미 바뀌어서, 지우지 않으면 화면에 옛 것이 그대로 남는다).
+                    logEvent(.info, "tg_reaction_set_failed", ["tg_message_id": .int(target), "emoji": .string(tgEmoji),
+                                                                "mapped_from": .string(emoji), "method": .string(method), "code": .int(Int64(code))])
+                    try await clearStaleReaction(target)
                 }
+            } else if let target {
+                // 대응이 없는 이모지(또는 매핑 자체가 없음) → 글 대체 전에 옛 반응을 지운다. iMessage 에서
+                // 반응이 바뀔 때 chat.db 에는 "지움" 행이 따로 오지 않고(관측: 옛 associated-message 행이
+                // 통째로 사라진다) 이 add 행 하나만 온다 — 그래서 remove 이벤트를 기다리지 않고 여기서 지운다.
+                try await clearStaleReaction(target)
             }
             lastIMThread = nil
-            _ = try await sendTG("\(label) 반응" + (target == nil ? " " + (try quoteOf(tb.targetGuid)) : ""), replyTo: target)
+            let id = try await sendTG("\(label) 반응" + (target == nil ? " " + (try quoteOf(tb.targetGuid)) : ""), replyTo: target)
+            logEvent(.info, "tg_reaction_fallback_text", ["tg_message_id": .int(target ?? 0), "fallback_tg_message_id": .int(id), "emoji": .string(label)])
         case .remove:
             if let target, try state.reaction(onTG: target) != nil {
                 try await setReaction(target, nil)
             }
         }
         return .done
+    }
+
+    /// 지금 봇이 그 텔레그램 글에 걸어 둔 반응이 있으면 지운다. 실패해도(네트워크 등) 글 대체는 계속
+    /// 진행한다 — 반응을 못 지운 것이 대체 글을 못 보내는 이유가 되면 안 된다.
+    func clearStaleReaction(_ target: Int64) async throws {
+        guard try state.reaction(onTG: target) != nil else { return }
+        do {
+            try await setReaction(target, nil)
+        } catch {
+            logEvent(.info, "tg_reaction_clear_failed", ["tg_message_id": .int(target), "code": .string(ErrorCodes.of(error))])
+        }
     }
 
     func quoteOf(_ guid: String) throws -> String {
