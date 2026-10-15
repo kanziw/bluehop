@@ -7,7 +7,7 @@ description: Install, operate and troubleshoot bluehop, a macOS relay that links
 
 bluehop runs on the user's Mac (signed in to Messages) as the LaunchAgent `dev.kanziw.bluehop`. Each **mapping** links one iMessage 1:1 chat to one Telegram bot chat; one process relays every enabled mapping, each in its own isolated worker. Full step-by-step guide with checks: `docs/AGENT-GUIDE.md`. Design: `docs/design-multi-mapping.md`.
 
-Binary after install: `B="$HOME/Library/Application Support/bluehop/bin/bluehop"`. Every command has `--help`; read commands take `--json`; unknown flags fail with exit code 2.
+Binary after install: `B="$HOME/Library/Application Support/bluehop/bin/bluehop"`. Every command and script has `--help`/`-h` (prints help, exits 0, does nothing else); read commands take `--json`; unknown flags fail with exit code 2. Before running a command that is not read-only, check its row in the side-effect table of `docs/AGENT-GUIDE.md` ("Side effects of every command").
 
 ## When to use
 
@@ -17,7 +17,7 @@ Binary after install: `B="$HOME/Library/Application Support/bluehop/bin/bluehop"
 ## Safety rules (always)
 
 1. **Never ask for, print or log a bot token.** Pass it on stdin (`--token-stdin`) or let the human type it into the hidden prompt of `bluehop mapping add` in their own terminal. There is no flag that takes a token value.
-2. **Never send a real message** to the user's contacts to "test". `doctor`, `mapping test`, `status`, `chats` and `mapping list` send nothing. `diag-send-file` really sends: only with the human's explicit go-ahead.
+2. **Never send a real message** to the user's contacts to "test". `doctor`, `mapping test`, `status`, `chats` and `mapping list` send nothing (`doctor --messages` shows the macOS Automation prompt the first time). `diag-send-file` really sends: only with the human's explicit go-ahead. With the relay running, `mapping add`, `mapping resume` and `resume` make it start relaying within seconds, and `bash scripts/install.sh` starts it; `bash scripts/uninstall.sh --purge` deletes every mapping and token.
 3. `bluehop chats` and `mapping list` print phone numbers and email addresses. Do not paste them into logs, issues or chat; show the human only the line they need, and confirm the chosen contact with them before adding a mapping.
 4. Agents do not grant macOS permissions (Full Disk Access, Automation). Stop and ask the human.
 5. Do not edit `config.json` by hand when a `bluehop mapping` command can do it; the commands validate and back up.
@@ -43,7 +43,7 @@ Prerequisites: the human created a **new** bot with @BotFather (one bot per chat
    "$B" chats --search "<part of the number or email>" --json
    ```
    Pick the `guid` the human confirms. `mappedTo` non-null means it is already linked.
-2. Ask the human to send any message to the new bot in Telegram (it is never relayed). Then, with the token on stdin (the human pastes it into a file with mode 0600, or pipes it):
+2. Ask the human to send any message to the new bot in Telegram (it is never relayed). Then, with the token on stdin. The human creates the token file (mode 0600, e.g. `umask 077; pbpaste > ~/bluehop-token`) and gives you only its path; you redirect it into stdin and never open or print it; the human deletes the file after success (the token is then in the Keychain). Or the human pipes it themselves:
    ```bash
    "$B" mapping add --token-stdin --chat '<guid>' --id <slug> --wait 180 --json < /path/to/token-file
    ```
@@ -59,7 +59,8 @@ Interactive alternative for a human at a terminal: `"$B" mapping add` (hidden to
 | Goal | Command |
 |---|---|
 | List mappings | `"$B" mapping list --json` |
-| Health per mapping | `"$B" status --json` → `verdict`: `ok`, `paused`, `halted`, `error`, `stale`, `unknown` |
+| Health per mapping | `"$B" status --json` → `verdict`: `ok`, `paused`, `halted`, `error`, `stale`, `unknown`; `lastErrorCode` (stable code) |
+| Why a check failed | `"$B" doctor --json` → each check's `code` (`TOKEN_FORMAT`, `CHATDB_UNREADABLE`, `TELEGRAM_UNAUTHORIZED`, …; table in README "Machine-readable checks"). `--lang en` for English text |
 | Check one mapping (sends nothing) | `"$B" mapping test <id> --json` |
 | Check everything with the binary's own permissions | `bash scripts/agent-run.sh doctor --telegram --json` |
 | Pause / resume one mapping | `"$B" mapping pause <id>`, `"$B" mapping resume <id>` |
@@ -88,4 +89,4 @@ With `--json`, errors are printed on stdout as `{"ok": false, "error": {"kind", 
 
 ## Limits (do not promise)
 
-No group chats. No real iMessage threaded replies or tapbacks from Telegram (a quoted prefix is sent instead). No edit or unsend mirroring. Text up to 4000 characters and files up to 20 MB to iMessage. Bot replies, CLI text and logs are in Korean; JSON keys and exit codes are stable.
+No group chats. No real iMessage threaded replies or tapbacks from Telegram (a quoted prefix is sent instead). No edit or unsend mirroring. Text up to 4000 characters and files up to 20 MB to iMessage. Bot replies, logs and most CLI text are in Korean (`doctor`, `mapping test`, `status` take `--lang en`); JSON keys, check codes and exit codes are stable.

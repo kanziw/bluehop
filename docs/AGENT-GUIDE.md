@@ -4,9 +4,9 @@ For AI agents (and people) setting up bluehop, an iMessage to Telegram relay (on
 
 The binary is `bluehop`; the LaunchAgent label and Keychain service are `dev.kanziw.bluehop`. A **mapping** links one iMessage 1:1 chat to one Telegram bot; one relay process runs every enabled mapping. A shorter task-oriented version of this guide for agents is the skill file [`skills/bluehop/SKILL.md`](../skills/bluehop/SKILL.md).
 
-Every command has `--help`, read commands take `--json`, and unknown flags fail with exit code 2. Exit codes: `0` ok, `1` failure, `2` usage, `3` conflict (same chat, same bot, same id), `4` not found, `5` timed out waiting for a Telegram message, `130` cancelled.
+Every command and every script in `scripts/` has `--help`/`-h`, which prints help and exits 0 before doing anything (also after an unknown flag or in another flag's value slot); unknown flags fail with exit code 2. Read commands take `--json`; `doctor`, `mapping test` and `status` have stable error codes in their JSON (README "Machine-readable checks") and `--lang en` for English text. Exit codes: `0` ok, `1` failure, `2` usage, `3` conflict (same chat, same bot, same id), `4` not found, `5` timed out waiting for a Telegram message, `130` cancelled.
 
-The relay's own output (`doctor`, errors, logs, bot replies) is in Korean. The exact strings to look for are quoted below.
+The relay's own output (errors, logs, bot replies, and `doctor`/`status` unless `--lang en`) is in Korean. The exact strings to look for are quoted below; prefer the JSON codes.
 
 ## 0. Preconditions
 
@@ -18,7 +18,41 @@ git clone https://github.com/kanziw/bluehop && cd bluehop
 ```
 Scope check: each linked iMessage 1:1 chat needs its own Telegram bot; several chats can be linked. If the user wants group chats, every chat at once through one bot, Linux, Windows, or a hosted service, stop: not supported.
 
-Agents must not: grant macOS permissions, type or read the bot token, or send real messages to the user's contacts. `diag-send-file` really sends; run it only with the human's explicit go-ahead. Every other command below only reads.
+Agents must not: grant macOS permissions, type or read the bot token, or send real messages to the user's contacts. Many commands below change state; check the table before running one.
+
+### Side effects of every command
+
+Checked against the code of 0.5.1 (`Sources/BluehopCLI/Commands.swift`, `scripts/*.sh`). Classes: **read-only** (reads files, the Messages database or the Keychain, changes nothing), **local write** (changes files, the Keychain or launchd on this Mac), **external request** (calls `api.telegram.org` or GitHub, delivers nothing to a person), **message delivery** (a message reaches a person: the iMessage contact, or you in a Telegram bot chat). `--help` and `-h` are read-only for every command and script.
+
+`"$B" …` is the installed binary. "Running relay" means the LaunchAgent `dev.kanziw.bluehop` is running: it re-reads `config.json` and the state database about every 5 seconds, so a local write can cause delivery a few seconds later.
+
+| Command | Class | What it does beyond reading |
+|---|---|---|
+| `version`, `mapping list`, `selfcheck-attributed`, `diag-echo`, `diag-audio` | read-only | Nothing. `diag-audio` opens audio attachment files to read their format; `diag-echo --expect-file` reads that file. |
+| `chats` / `list-chats` | read-only | When the terminal lacks Full Disk Access and the binary is installed: creates and removes a temporary launchd job (`dev.kanziw.bluehop.oneshot.<pid>`, plist in `$TMPDIR`) to read with the binary's permission. |
+| `status` | read-only | Runs `launchctl print` (read-only). Opening a 0.4 state database migrates it once to the 0.5 layout (**local write**, keeps `state.sqlite.v1-backup`). |
+| `doctor` | read-only | Same temporary launchd job as `chats` when needed. `--messages` asks Messages.app over AppleScript whether the chat exists: **the first run shows the macOS Automation prompt** (a HUMAN must click Allow); nothing is sent. `--telegram`: **external request** `getMe`. |
+| `mapping test <id>` | external request | `getMe` with that mapping's token. `--messages` as in `doctor` (Automation prompt). Sends nothing. |
+| `telegram-ids` | external request | `getMe` and `getUpdates` without an offset, so pending Telegram updates are not consumed. Does not work while the running relay polls the same bot. |
+| `mapping add` | local write + external request | `getMe`, `getUpdates` (peek, no offset), and `getMe` again for the final check (`--no-doctor` skips it). Writes the bot token to the Keychain (service `dev.kanziw.bluehop`, account `bot-token:<id>`; not with `--token-file`), writes `config.json` (a 0.4 config is rewritten in the 0.5 shape after a `config.json.v1-backup` copy). `--dry-run` writes nothing. **With a running relay, the new mapping starts relaying within about 5 seconds** (message delivery from then on; see `run`). |
+| `mapping remove <id>` | local write | Rewrites `config.json` (with `.v1-backup` if it was 0.4), deletes the mapping's Keychain token (not with `--keep-token`), `--purge-state` deletes its rows from the state database. A running relay stops that mapping. |
+| `mapping pause <id>` | local write | Sets `enabled: false` in `config.json` (with `.v1-backup` if it was 0.4). A running relay stops that mapping. |
+| `mapping resume <id>` | local write → delivery | Sets `enabled: true`. **A running relay restarts that mapping**: waiting iMessages are relayed to Telegram, Telegram messages from while it was paused are sent to iMessage if younger than 10 minutes, older ones get a ⚠️ reply in Telegram. |
+| `resume [--mapping ID] [--skip-backlog]` | local write → delivery | Clears the safety halt in the state database (creates it if missing); `--skip-backlog` also moves the iMessage cursor to the end. Sends nothing itself, but **a running relay then relays the waiting iMessages to Telegram** (none with `--skip-backlog`) and resumes sending Telegram replies to iMessage. |
+| `run` | local write + external request + **message delivery** | The relay itself (what the LaunchAgent runs). Writes the state database and staging folders, polls Telegram, relays iMessage → Telegram and **sends iMessages to the linked contacts**. On a mapping's first start it skips old messages and posts `ℹ️ 켜기 전 메시지 N개는 보내지 않았습니다` to the bot chat if any were waiting; a safety halt posts `⏸ bluehop 안전 정지`. Never run it by hand next to the LaunchAgent. |
+| `diag-send-file` | **message delivery** | **Sends the file (and `--caption`) to the real iMessage contact** of the mapping, after copying it into the staging folder. Only with the human's explicit go-ahead. The other `diag-*` commands send nothing. |
+| `bash scripts/install.sh --no-load` | local write | Runs `check.sh` and `build-release.sh` (writes `.build/`, `dist/`; signs with a keychain identity). **Stops a running relay** (`launchctl bootout`) before copying the binary to `~/Library/Application Support/bluehop/bin/bluehop`, writes `~/Library/LaunchAgents/dev.kanziw.bluehop.plist`, and leaves the relay stopped. |
+| `bash scripts/install.sh` | local write → **message delivery** | As above, then `doctor` through a temporary launchd job, then **starts the LaunchAgent: from here on messages are really relayed** in both directions for every enabled mapping. If doctor fails or there is no config, the relay stays stopped. Update (`git pull && bash scripts/install.sh`) is the same. |
+| `bash scripts/uninstall.sh` | local write | Stops the LaunchAgent, deletes its plist, the binary and the `tmp`/`outbox` folders. Keeps config and state. |
+| `bash scripts/uninstall.sh --purge` | local write, **irreversible** | Also deletes `~/Library/Application Support/bluehop` (config, state, every mapping) and every Keychain item of `dev.kanziw.bluehop`. |
+| `bash scripts/agent-run.sh <command>` | depends on `<command>` | Creates and removes a temporary launchd job (`dev.kanziw.bluehop.oneshot`) that runs the installed binary with the given arguments; the command has its own side effects from this table. With `--help`/`-h` it runs the binary directly, without launchd. |
+| `bash scripts/check.sh`, `bash scripts/build-release.sh` | local write | Build output in `.build/` and `dist/`; `build-release.sh` signs with a keychain identity (macOS may ask for keychain access). |
+| `bash scripts/setup-dev.sh` | local write | `git config core.hooksPath .githooks` in the clone; creates `.git/info/pii-denylist`. |
+| `bash scripts/publish-site.sh [--push]` | local write (+ external request with `--push`) | Commits `docs/site/` and `llms.txt` to the local `gh-pages` branch; `--push` pushes it to GitHub (maintainers only). |
+| `launchctl kickstart -k …` / `bootstrap …` (section 9) | local write → **message delivery** | (Re)starts the relay; same effects as `run`. |
+| `/status`, `/pause`, `/resume` in a bot chat | — | Sent by the human in Telegram. `/resume` releases waiting messages like `resume`. |
+
+**Where real relaying becomes possible:** only a running relay delivers messages. It starts with `bash scripts/install.sh` (without `--no-load`) or `launchctl bootstrap`/`kickstart`, and after that `mapping add`, `mapping resume` and `resume` take effect within seconds. Running `run` by hand does the same. `diag-send-file` delivers on its own, even with the relay stopped.
 
 ## 1. Telegram bot (HUMAN)
 
@@ -56,9 +90,9 @@ It asks for the bot token (hidden input), checks it with Telegram (`getMe`), sho
 **Option B, the agent with flags (no prompts):**
 ```bash
 "$B" chats --search "<part of the number or email>" --json     # pick the guid the human confirms
-"$B" mapping add --token-stdin --chat '<guid>' --id <slug> --wait 180 --json < "$TOKEN_FILE"
+"$B" mapping add --token-stdin --chat '<guid>' --id <slug> --wait 180 --json < "$TOKEN_FILE"   # $TOKEN_FILE: path the human gave
 ```
-- The token comes from stdin only. The human puts it into a file the agent never prints (mode 0600), or pipes it. There is no flag that takes the token value.
+- The token comes from stdin only. There is no flag that takes the token value. **The human** creates the token file (for example `umask 077; pbpaste > ~/bluehop-token` right after copying the token from @BotFather), tells the agent the path, and **deletes it after `mapping add` succeeds** (`rm ~/bluehop-token`; the token is then in the Keychain). The agent only redirects the file into stdin as shown; it never opens, prints, copies or `cat`s the file, and never asks for the token in chat. Or the human runs the command and pipes the token themselves.
 - `--chat` takes a guid (`any;-;…`, `iMessage;-;…`, `SMS;-;…`) or a handle; a handle picks that contact's most recently active 1:1 chat.
 - Telegram ids: detected from a private message to the bot sent within the last 10 minutes or during `--wait` seconds. Several different senders → exit 3; then pass `--telegram-chat <id> --allowed-user <id>` (both or neither; `"$B" telegram-ids --token-stdin` lists recent senders).
 - `--dry-run` checks everything and writes nothing. `--token-file PATH` keeps the token in that 0600 file instead of the Keychain.
@@ -106,6 +140,8 @@ Repeat step 1 (a new bot) and step 4. The running relay notices the config chang
 
 ## 8. Upgrade from 0.4.x
 
+**Warning:** after the gate and the build pass, `bash scripts/install.sh` stops the running relay (`launchctl bootout`), replaces the binary, runs `doctor`, and only then starts the LaunchAgent again. From the stop until the new start nothing is relayed in either direction (after the start, waiting iMessages are relayed, or trigger a safety halt if more than 50 are waiting; Telegram messages older than 10 minutes by then are not sent and get a ⚠️). If `doctor` fails, or with `--no-load`, the relay **stays stopped** with the new binary in place: fix the cause and run `bash scripts/install.sh` again, or start it anyway with `launchctl bootstrap "gui/$(id -u)" "$HOME/Library/LaunchAgents/dev.kanziw.bluehop.plist"`. Upgrade when a few minutes without relaying are acceptable. The same applies to every later update.
+
 A 0.4.x config (top-level `telegram` and `imessage`) keeps working: it is read as one mapping named `default` that uses the old Keychain account `telegram-bot-token`, and the state database is moved under `default` on the first start (a copy is kept as `state.sqlite.v1-backup`). The first `bluehop mapping` command that changes something rewrites the config in the new shape and keeps `config.json.v1-backup`.
 
 ## 9. Operate
@@ -120,7 +156,7 @@ A 0.4.x config (top-level `telegram` and `imessage`) keeps working: it is read a
 | Restart | `launchctl kickstart -k "gui/$(id -u)/dev.kanziw.bluehop"` |
 | Stop | `launchctl bootout "gui/$(id -u)/dev.kanziw.bluehop"` |
 | Start again | `launchctl bootstrap "gui/$(id -u)" "$HOME/Library/LaunchAgents/dev.kanziw.bluehop.plist"` |
-| Update | `git pull && bash scripts/install.sh` (permissions survive when the same signing identity is used) |
+| Update | `git pull && bash scripts/install.sh` (permissions survive when the same signing identity is used; the relay is down while it runs, see section 8) |
 | Uninstall | `bash scripts/uninstall.sh` (keeps config and state) or `--purge` (also config, state and every mapping's Keychain token) |
 | Version | `"$B" version` |
 
