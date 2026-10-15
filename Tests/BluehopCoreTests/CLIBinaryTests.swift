@@ -4,14 +4,37 @@ import XCTest
 
 /// 빌드된 `bluehop` 을 실제로 실행해 에이전트가 기대는 겉모습(도움말·종료 코드·--json)을 본다.
 /// 임시 설정 파일(--config)만 쓰고, chat.db·Keychain·네트워크·LaunchAgent 는 건드리지 않는 명령만 돌린다.
+/// 홈 폴더(HOME·CFFIXED_USER_HOME)와 작업 폴더도 테스트마다 빈 임시 폴더로 바꿔 실제 설정·상태 DB·chat.db 에 닿지 않게 한다.
 final class CLIBinaryTests: XCTestCase {
     var binary: String {
         Bundle(for: CLIBinaryTests.self).bundleURL.deletingLastPathComponent().appendingPathComponent("bluehop").path
     }
 
-    func run(_ args: [String], stdin: String? = nil) throws -> ProcessResult {
+    lazy var home = makeTempDir()
+    lazy var workDir = makeTempDir()
+
+    var isolatedEnvironment: [String: String] {
+        var env = ProcessInfo.processInfo.environment
+        env["HOME"] = home.path
+        env["CFFIXED_USER_HOME"] = home.path
+        env.removeValue(forKey: "BLUEHOP_LANG")
+        return env
+    }
+
+    func run(_ args: [String], stdin: String? = nil, env: [String: String] = [:]) throws -> ProcessResult {
         guard FileManager.default.isExecutableFile(atPath: binary) else { throw XCTSkip("bluehop 바이너리가 없다: \(binary)") }
-        return try ProcessRunner.run(binary, args, timeout: 30, stdin: stdin.map { Data($0.utf8) })
+        return try ProcessRunner.run(binary, args, timeout: 30, stdin: stdin.map { Data($0.utf8) },
+                                     environment: isolatedEnvironment.merging(env) { _, new in new }, directory: workDir.path)
+    }
+
+    /// 에이전트가 부를 수 있는 모든 명령(별칭 포함). 새 명령을 넣으면 여기에도 넣는다.
+    static let allCommands = [["run"], ["chats"], ["list-chats"], ["mapping", "list"], ["mapping", "add"], ["mapping", "remove"],
+                              ["mapping", "pause"], ["mapping", "resume"], ["mapping", "test"], ["doctor"], ["status"],
+                              ["telegram-ids"], ["resume"], ["selfcheck-attributed"], ["diag-echo"], ["diag-send-file"],
+                              ["diag-audio"], ["version"]]
+
+    func entries(_ dir: URL) -> [String] {
+        (FileManager.default.enumerator(atPath: dir.path)?.allObjects as? [String]) ?? []
     }
 
     func json(_ r: ProcessResult) throws -> [String: Any] {
@@ -19,10 +42,7 @@ final class CLIBinaryTests: XCTestCase {
     }
 
     func testEveryCommandHasHelp() throws {
-        let commands = [["run"], ["chats"], ["list-chats"], ["mapping", "list"], ["mapping", "add"], ["mapping", "remove"],
-                        ["mapping", "pause"], ["mapping", "resume"], ["mapping", "test"], ["doctor"], ["status"],
-                        ["telegram-ids"], ["resume"], ["selfcheck-attributed"], ["diag-echo"], ["diag-send-file"], ["diag-audio"], ["version"]]
-        for c in commands {
+        for c in Self.allCommands {
             let r = try run(c + ["--help"])
             XCTAssertEqual(r.status, 0, c.joined(separator: " "))
             XCTAssertTrue(r.stdout.hasPrefix("bluehop " + c.joined(separator: " ")), r.stdout)
@@ -34,6 +54,29 @@ final class CLIBinaryTests: XCTestCase {
         XCTAssertEqual(try run(["help", "mapping", "add"]).stdout, try run(["mapping", "add", "--help"]).stdout)
         XCTAssertEqual(try run(["mapping", "--help"]).status, 0)
         XCTAssertEqual(try run([]).status, 2)
+    }
+
+    /// `--help`/`-h` 는 어디에 있든(모르는 옵션 뒤, 다른 옵션의 값 자리) 다른 일보다 먼저 도움말로 끝나고,
+    /// 모르는 옵션은 종료 코드 2 로 끝난다. 둘 다 홈·작업 폴더에 아무것도 만들지 않는다(`run` 이 중계를 시작하지 않는다).
+    func testHelpAndUnknownFlagsHaveNoSideEffects() throws {
+        let helpForms: [[String]] = [["--help"], ["-h"], ["--bogus-flag", "--help"], ["-h", "--bogus-flag"],
+                                     ["--config", "-h"], ["--mapping", "--help"], ["extra", "positional", "-h"]]
+        let badForms: [[String]] = [["--bogus-flag"], ["-x"], ["--bogus-flag=1"], ["--json", "--bogus-flag"]]
+        for c in Self.allCommands {
+            let name = c.joined(separator: " ")
+            for form in helpForms {
+                let r = try run(c + form)
+                XCTAssertEqual(r.status, 0, "\(name) \(form): \(r.stderr)")
+                XCTAssertTrue(r.stdout.hasPrefix("bluehop " + name), "\(name) \(form): \(r.stdout.prefix(80))")
+            }
+            for form in badForms {
+                let r = try run(c + form)
+                XCTAssertEqual(r.status, 2, "\(name) \(form): \(r.stdout) \(r.stderr)")
+                XCTAssertTrue(r.stderr.contains("모르는 옵션"), "\(name) \(form): \(r.stderr)")
+            }
+        }
+        XCTAssertEqual(entries(home), [], "홈 폴더에 생긴 파일")
+        XCTAssertEqual(entries(workDir), [], "작업 폴더에 생긴 파일")
     }
 
     func testUnknownCommandsAndFlagsFail() throws {

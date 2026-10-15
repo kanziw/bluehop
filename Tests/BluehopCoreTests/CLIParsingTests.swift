@@ -45,6 +45,14 @@ final class CLIParsingTests: XCTestCase {
         let need = CommandSpec("mapping remove", "s", positionals: ["ID"], flags: [])
         XCTAssertTrue(try ArgParser.parse(["--help"], spec: need).wantsHelp)
         XCTAssertTrue(try ArgParser.parse(["-h"], spec: need).wantsHelp)
+        // 모르는 옵션보다, 값 자리에 있어도, 남는 인자보다 도움말이 먼저다
+        XCTAssertTrue(try ArgParser.parse(["--bogus", "--help"], spec: spec).wantsHelp)
+        XCTAssertTrue(try ArgParser.parse(["--id", "-h"], spec: spec).wantsHelp)
+        XCTAssertTrue(try ArgParser.parse(["a", "b", "c", "--help"], spec: spec).wantsHelp)
+        XCTAssertNil(try ArgParser.parse(["--id", "-h"], spec: spec).value("--id"))
+        // -- 뒤의 --help 는 위치 인자
+        XCTAssertFalse(try ArgParser.parse(["--", "--help"], spec: spec).wantsHelp)
+        XCTAssertFalse(ArgParser.wantsHelp(["--", "-h"]))
         let h = spec.help()
         XCTAssertTrue(h.hasPrefix("bluehop mapping add [ID] [옵션]"))
         XCTAssertTrue(h.contains("--telegram-chat ID"))

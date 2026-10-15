@@ -8,10 +8,14 @@ public struct ProcessResult { public var status: Int32; public var stdout: Strin
 public enum ProcessRunner {
     /// 셸을 거치지 않고 실행 파일을 직접 띄운다. 인자는 그대로 argv 가 된다.
     /// - Parameter stdin: 표준입력으로 넘길 값(비밀은 argv 가 아니라 여기로 — `ps` 에 보이지 않는다).
-    public static func run(_ executable: String, _ args: [String], timeout: TimeInterval = 30, stdin: Data? = nil) throws -> ProcessResult {
+    /// - Parameter environment: 주면 이 환경만 쓴다(nil 이면 물려받음). `directory` 는 작업 폴더.
+    public static func run(_ executable: String, _ args: [String], timeout: TimeInterval = 30, stdin: Data? = nil,
+                           environment: [String: String]? = nil, directory: String? = nil) throws -> ProcessResult {
         let p = Process()
         p.executableURL = URL(fileURLWithPath: executable)
         p.arguments = args
+        if let environment { p.environment = environment }
+        if let directory { p.currentDirectoryURL = URL(fileURLWithPath: directory) }
         let out = Pipe(), err = Pipe()
         p.standardOutput = out
         p.standardError = err

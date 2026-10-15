@@ -130,10 +130,25 @@ public struct ParsedArgs: Equatable {
 }
 
 public enum ArgParser {
-    /// `--flag value`, `--flag=value`, `--` 뒤는 모두 위치 인자. `-h`/`--help` 는 도움말.
+    /// `--` 앞에 `-h`/`--help` 가 하나라도 있으면 다른 인자는 보지 않고 도움말만 요청한다.
+    /// 다른 옵션의 값 자리(`--config -h`)에 있어도, 모르는 옵션 뒤에 있어도 도움말이 이긴다.
+    /// 명령이 아무 일도 하기 전에 이 판정이 먼저 끝나므로 `--help` 는 부작용 없이 끝난다.
+    public static func wantsHelp(_ args: [String]) -> Bool {
+        for a in args {
+            if a == "--" { return false }
+            if a == "--help" || a == "-h" { return true }
+        }
+        return false
+    }
+
+    /// `--flag value`, `--flag=value`, `--` 뒤는 모두 위치 인자. `-h`/`--help` 는 도움말(`wantsHelp`).
     /// 모르는 옵션·남는 위치 인자·값 없는 옵션은 오류(종료 코드 2).
     public static func parse(_ args: [String], spec: CommandSpec) throws -> ParsedArgs {
         var out = ParsedArgs()
+        if wantsHelp(args) {
+            out.wantsHelp = true
+            return out
+        }
         let known = Dictionary(spec.flags.map { ($0.name, $0) }, uniquingKeysWith: { a, _ in a })
         var i = 0
         var onlyPositionals = false

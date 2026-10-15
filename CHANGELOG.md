@@ -4,6 +4,9 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+### Fixed
+- `--help` and `-h` win over everything else before `--`: after an unknown flag (`run --bogus --help`) and in the value slot of another flag (`run --config -h`), the command prints its help and exits 0 before doing anything. Before, `run --config -h` took `-h` as the config path and started the relay startup path.
+
 ## [0.5.0] - 2026-10-15
 
 ### Added
