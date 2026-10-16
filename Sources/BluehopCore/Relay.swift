@@ -28,6 +28,14 @@ public final class Relay {
         /// 맞춘다 — osascript 가 분명히 성공했을 때 받아들이는 노출(같은 글을 사람이 직접 보내면 메아리로
         /// 잘못 삼켜질 수 있는 창)과 같은 크기만 추가로 받아들인다는 뜻이다.
         public var sendTimeoutGrace: Double = 60
+        /// 보내기 명령이 메시지 앱에 닿기 전에 실패해 보내지지 않은 것이 확실할 때(`SendFailureKind.notSent`)
+        /// 다시 보내기 전에 기다리는 초. 개수가 곧 재시도 횟수다. 성공하면 경고하지 않는다.
+        public var notSentRetryDelays: [Double] = [2, 5]
+        /// 유예(`sendTimeoutGrace`) 뒤 메시지 앱이 응답하는 것을 확인한 다음, chat.db 에 늦게 적히는 행을 한 번 더
+        /// 기다리는 초. 그 뒤에도 이 대화에 내 메시지 행이 하나도 없을 때만 1회 다시 보낸다.
+        public var resendSettleDelay: Double = 3
+        /// 메시지 앱 무응답(시간 제한)이 이 횟수 이상 이어진 상태에서 경고하면 "메시지 앱을 다시 켜 주세요"를 붙인다.
+        public var unresponsiveHintThreshold = 2
         /// 첨부를 둔 폴더가 메시지 앱(샌드박스)이 읽을 수 없는 곳이면 보내지 않고 ⚠️ 로 알린다.
         /// 보내 봐야 chat.db 에 error=25 로 실패가 남을 뿐이다(사고 2026-10-14). 테스트는 임시 폴더를 쓰므로 끈다.
         public var requireMessagesReadableOutbox = true
@@ -79,6 +87,26 @@ public final class Relay {
     var telegramFailures = 0
     var lastHealthWrite: Double = 0
     var lastScanWrite: Double = 0
+    /// 메시지 앱 무응답(osascript 시간 제한)이 연달아 난 횟수. 메시지 앱이 한 번이라도 응답하면 0 으로.
+    var unresponsiveStreak = 0
+    /// 보내기가 시간 제한에 걸려 결과를 모르는 부분(키 `텔레그램id:부분`)을 유예 뒤 다시 보낼 때 필요한 것.
+    /// 메모리에만 둔다 — 재시작하면 사라져 다시 보내지 않고 경고한다(모를 때는 보내지 않는 쪽).
+    var unconfirmedSends: [String: UnconfirmedSend] = [:]
+    /// 경고를 보낼 때 덧붙일, 무엇을 몇 번 시도했는지(텔레그램 id 별). 메모리에만 둔다 — 없으면 기본 문구.
+    var warnNotes: [Int64: WarnNote] = [:]
+
+    struct UnconfirmedSend {
+        var kind: String
+        var payload: String
+        /// 보내기 직전 이 대화의 마지막 chat.db rowid. 그 뒤에 생긴 내 메시지 행이 있으면 다시 보내지 않는다.
+        var baselineRowID: Int64
+    }
+
+    struct WarnNote {
+        /// true 면 보내지 않은 것이 확실하다("보내지 못했습니다"), false 면 확인 못 함.
+        var certainlyNotSent: Bool
+        var text: String
+    }
 
     public init(chatDB: ChatDB, state: StateStore, telegram: TelegramClient, sender: MessagesSender,
                 converter: MediaConverter, clock: Clock, options: Options, activity: ChatActivity? = nil,
@@ -397,34 +425,97 @@ public final class Relay {
             }
             await toIMLimiter.acquire()
             let t0 = clock.now
+            let baseline = chat.flatMap { try? chatDB.maxRowID(chat: $0) } ?? 0
             logEvent(.debug, "im_send_start", ["tg_message_id": .int(m.message_id), "part": .int(Int64(i)), "kind": .string(p.kind)])
-            do {
-                if p.kind == "file" {
-                    try sender.sendFile(p.payload, chatGuid: options.chatGuid)
-                } else {
-                    try sender.sendText(p.payload, chatGuid: options.chatGuid)
-                }
+            let result = await sendToMessages(kind: p.kind, payload: p.payload, tgMessageID: m.message_id, part: i,
+                                              retryDelays: options.notSentRetryDelays)
+            let ms = LogValue.int(Int64((clock.now - t0) * 1000))
+            switch result {
+            case .sent(let attempts):
                 try? state.updateOutbox(tgMessageID: m.message_id, part: i, status: .sent)
-                log("iMessage 로 보냄 tg=\(m.message_id) part=\(i) kind=\(p.kind)")
+                log("iMessage 로 보냄 tg=\(m.message_id) part=\(i) kind=\(p.kind)\(attempts > 1 ? " (\(attempts)번째 시도)" : "")")
                 logEvent(.info, "im_send_ok", ["tg_message_id": .int(m.message_id), "part": .int(Int64(i)), "kind": .string(p.kind),
-                                               "ms": .int(Int64((clock.now - t0) * 1000))])
-            } catch let error as SendError where error.isAmbiguousTimeout {
+                                               "ms": ms, "attempts": .int(Int64(attempts))])
+            case .unknown(let error, let attempts):
                 // 메시지 앱에 전달됐는지 확인 못 함 — 곧바로 실패로 단정하지 않고 매칭 키를 그대로 둔 채
                 // sendTimeoutGrace 동안 메아리 맞춤을 계속한다(남은 부분은 이 발송이 불확실한 채로 더
-                // 보내지 않는다 — 반쪽 발송 방지는 그대로 지킨다).
+                // 보내지 않는다 — 반쪽 발송 방지는 그대로 지킨다). 유예 뒤 판단에 쓸 것을 메모리에 남긴다.
                 stop = "이전 부분 응답 없음(확인 안 됨)"
                 try? state.updateOutbox(tgMessageID: m.message_id, part: i, status: .ambiguousTimeout, detail: "\(error)")
+                unconfirmedSends[Self.partKey(m.message_id, i)] = UnconfirmedSend(kind: p.kind, payload: p.payload, baselineRowID: baseline)
                 log("iMessage 보내기 응답 없음(불확실) tg=\(m.message_id) part=\(i): \(error)")
                 logEvent(.info, "im_send_ambiguous_timeout", ["tg_message_id": .int(m.message_id), "part": .int(Int64(i)), "kind": .string(p.kind),
-                                                               "ms": .int(Int64((clock.now - t0) * 1000)), "grace_seconds": .double(options.sendTimeoutGrace)])
-            } catch {
+                                                               "ms": ms, "attempts": .int(Int64(attempts)), "grace_seconds": .double(options.sendTimeoutGrace)])
+            case .notSent(let error, let attempts):
+                stop = "메시지 앱 보내기 실패"
+                try? state.updateOutbox(tgMessageID: m.message_id, part: i, status: .failed, detail: "\(error)", clearKey: true)
+                warnNotes[m.message_id] = WarnNote(certainlyNotSent: true,
+                                                   text: "\(attempts)번 시도했지만 모두 메시지 앱에 닿기 전에 실패해 보내지 않았습니다. 필요하면 다시 보내 주세요.")
+                log("iMessage 보내기 실패(보내지 않음, \(attempts)번 시도) tg=\(m.message_id) part=\(i): \(error)")
+                logEvent(.info, "im_send_failed", ["tg_message_id": .int(m.message_id), "part": .int(Int64(i)), "kind": .string(p.kind),
+                                                    "ms": ms, "attempts": .int(Int64(attempts)), "certainly_not_sent": .bool(true),
+                                                    "reason": .string(error.reason), "detail": .string("\(error)".prefix(200).description)])
+            case .failed(let error, let attempts):
                 stop = "메시지 앱 보내기 실패"
                 try? state.updateOutbox(tgMessageID: m.message_id, part: i, status: .failed, detail: "\(error)", clearKey: true)
                 log("iMessage 보내기 실패 tg=\(m.message_id) part=\(i): \(error)")
                 logEvent(.info, "im_send_failed", ["tg_message_id": .int(m.message_id), "part": .int(Int64(i)), "kind": .string(p.kind),
-                                                    "ms": .int(Int64((clock.now - t0) * 1000)), "detail": .string("\(error)".prefix(200).description)])
+                                                    "ms": ms, "attempts": .int(Int64(attempts)), "certainly_not_sent": .bool(false),
+                                                    "reason": .string((error as? SendError)?.reason ?? "error"),
+                                                    "detail": .string("\(error)".prefix(200).description)])
             }
         }
+    }
+
+    static func partKey(_ tgMessageID: Int64, _ part: Int) -> String { "\(tgMessageID):\(part)" }
+
+    enum SendResult {
+        case sent(attempts: Int)
+        /// 보내지 않은 것이 확실한 실패가 재시도 끝까지 이어짐.
+        case notSent(SendError, attempts: Int)
+        /// 보내기 명령을 넘긴 뒤 응답 없음 — 전달 여부 모름. 다시 보내지 않는다.
+        case unknown(SendError, attempts: Int)
+        /// 그 밖의 또렷한 실패 — 보내기 전 단계라는 근거가 없어 다시 보내지 않는다.
+        case failed(Error, attempts: Int)
+    }
+
+    /// 메시지 앱으로 한 부분을 보낸다. 보내지 않은 것이 확실한 실패(`SendFailureKind.notSent`)만 `retryDelays`
+    /// 간격으로 다시 시도한다 — 그 밖의 실패는 메시지 앱이 이미 실행했을 수 있어 다시 보내면 중복될 수 있다.
+    func sendToMessages(kind: String, payload: String, tgMessageID: Int64, part: Int, retryDelays: [Double]) async -> SendResult {
+        var attempt = 0
+        while true {
+            attempt += 1
+            do {
+                if kind == "file" {
+                    try sender.sendFile(payload, chatGuid: options.chatGuid)
+                } else {
+                    try sender.sendText(payload, chatGuid: options.chatGuid)
+                }
+                unresponsiveStreak = 0
+                return .sent(attempts: attempt)
+            } catch let error as SendError {
+                noteResponsiveness(error)
+                switch error.kind {
+                case .unknown: return .unknown(error, attempts: attempt)
+                case .failed: return .failed(error, attempts: attempt)
+                case .notSent:
+                    guard attempt <= retryDelays.count else { return .notSent(error, attempts: attempt) }
+                    let delay = retryDelays[attempt - 1]
+                    log("iMessage 보내기 전 단계 실패 — \(Int(delay))초 뒤 다시 시도 tg=\(tgMessageID) part=\(part): \(error)")
+                    logEvent(.info, "im_send_retry", ["tg_message_id": .int(tgMessageID), "part": .int(Int64(part)), "kind": .string(kind),
+                                                      "attempt": .int(Int64(attempt + 1)), "reason": .string(error.reason),
+                                                      "delay_seconds": .double(delay)])
+                    await clock.sleep(seconds: delay)
+                }
+            } catch {
+                return .failed(error, attempts: attempt)
+            }
+        }
+    }
+
+    /// 메시지 앱이 응답했는지(오류든 성공이든 답을 돌려줬는지)로 무응답 연속 횟수를 센다.
+    func noteResponsiveness(_ error: SendError) {
+        unresponsiveStreak = error.messagesUnresponsive ? unresponsiveStreak + 1 : 0
     }
 
     func recordRejected(_ tgMessageID: Int64, _ why: String) throws {
@@ -516,16 +607,24 @@ public final class Relay {
             return
         }
         await toIMLimiter.acquire()
-        do {
-            try sender.sendText(text, chatGuid: options.chatGuid)
+        switch await sendToMessages(kind: "text", payload: text, tgMessageID: syntheticID, part: 0, retryDelays: options.notSentRetryDelays) {
+        case .sent:
             try? state.updateOutbox(tgMessageID: syntheticID, part: 0, status: .sent)
-        } catch {
+        case .unknown(let error, _):
+            // 글과 같은 원칙: 결과를 모르면 유예 동안 메아리를 기다리고, 다시 보내지는 않는다.
+            try? state.updateOutbox(tgMessageID: syntheticID, part: 0, status: .ambiguousTimeout, detail: "\(error)")
+        case .notSent(let error, let attempts):
+            try? state.updateOutbox(tgMessageID: syntheticID, part: 0, status: .failed, detail: "\(error)", clearKey: true)
+            warnNotes[syntheticID] = WarnNote(certainlyNotSent: true, text: "\(attempts)번 시도했지만 모두 메시지 앱에 닿기 전에 실패해 보내지 않았습니다.")
+        case .failed(let error, _):
             try? state.updateOutbox(tgMessageID: syntheticID, part: 0, status: .failed, detail: "\(error)", clearKey: true)
         }
     }
 
-    /// 발송 결과를 정리해 사용자에게 알린다: 실패가 있을 때만 ⚠️ 답글로 알린다. 자동 재시도는 하지 않는다.
+    /// 발송 결과를 정리해 사용자에게 알린다: 실패가 있을 때만 ⚠️ 답글로 알린다.
     /// 성공은 표시하지 않는다 — 사용자 글에 달리는 반응은 상대가 단 것만 남아야 헷갈리지 않는다.
+    /// 다시 보내기는 두 경우뿐이다: 보내지 않은 것이 확실한 실패의 즉시 재시도(`sendToMessages`)와,
+    /// 결과를 모르는 발송이 유예 끝까지 확인되지 않았을 때의 1회 재전송(`resendUnconfirmed` 의 조건을 모두 만족할 때).
     func settleOutbox() async {
         guard let ids = try? state.unnotifiedTGMessages() else { return }
         let now = clock.now
@@ -545,6 +644,10 @@ public final class Relay {
                     entries[i].status = .failed
                     logEvent(.info, "echo_giveup", ["tg_message_id": .int(id), "part": .int(Int64(e.part)), "from_status": .string("sending")])
                 case .ambiguousTimeout where age > options.sendTimeoutGrace:
+                    if let next = await resendUnconfirmed(id: id, entry: e, entries: entries) {
+                        entries[i].status = next
+                        continue
+                    }
                     try? state.updateOutbox(tgMessageID: id, part: e.part, status: .failed,
                                             detail: "\(Int(options.sendTimeoutGrace))초 안에 메시지 앱 응답을 확인하지 못함")
                     entries[i].status = .failed
@@ -558,16 +661,101 @@ public final class Relay {
             if !failed.isEmpty {
                 let why = failed.compactMap(\.detail).first ?? "알 수 없음"
                 let target: Int64? = id > 0 ? id : nil
-                let what = id > 0 ? "이 메시지" : "반응"
                 do {
-                    try await telegram.sendMessage("⚠️ \(what)를 iMessage 로 보내지 못했거나 확인하지 못했습니다: \(why)\n자동으로 다시 보내지 않았습니다. 필요하면 iPhone 에서 확인 후 다시 보내 주세요.", replyTo: target)
-                    logEvent(.info, "warn_sent", ["tg_message_id": .int(id)])
+                    try await telegram.sendMessage(warningText(id: id, why: why), replyTo: target)
+                    logEvent(.info, "warn_sent", ["tg_message_id": .int(id), "messages_unresponsive_streak": .int(Int64(unresponsiveStreak))])
                 } catch {
                     continue  // 알림을 못 보냈으면 다음 루프에 다시 시도
                 }
             }
+            warnNotes[id] = nil
+            for e in entries { unconfirmedSends[Self.partKey(id, e.part)] = nil }
             try? state.markNotified(tgMessageID: id)
         }
+    }
+
+    /// 실패 경고 문구. 무엇을 몇 번 시도했는지(`warnNotes`)를 붙이고, 메시지 앱 무응답이 이어지면 다시 켜 달라고 안내한다.
+    func warningText(id: Int64, why: String) -> String {
+        let what = id > 0 ? "이 메시지" : "반응"
+        let note = warnNotes[id]
+        let head = note?.certainlyNotSent == true
+            ? "⚠️ \(what)를 iMessage 로 보내지 못했습니다: \(why)"
+            : "⚠️ \(what)를 iMessage 로 보내지 못했거나 확인하지 못했습니다: \(why)"
+        var text = head + "\n" + (note?.text ?? "자동으로 다시 보내지 않았습니다. 필요하면 iPhone 에서 확인 후 다시 보내 주세요.")
+        if unresponsiveStreak >= options.unresponsiveHintThreshold {
+            text += "\n메시지 앱이 응답하지 않습니다. Mac 에서 메시지 앱을 종료했다가 다시 켜 주세요."
+        }
+        return text
+    }
+
+    /// 보내기가 시간 제한에 걸려 결과를 모르는 부분이 유예 끝까지 메아리로 확인되지 않았을 때, 다시 보내도
+    /// 중복이 생기지 않는다고 볼 근거가 모두 있으면 한 번만 다시 보낸다. 돌려준 값은 그 부분의 새 상태이고,
+    /// nil 이면 다시 보내지 않았으니 호출한 쪽이 평소처럼 실패로 넘긴다.
+    ///
+    /// 다시 보내는 조건(하나라도 아니면 보내지 않는다):
+    /// 1. 이번 실행에서 보낸 부분이다(본문·기준 rowid 가 메모리에 있음). 재시작 뒤에는 보내지 않는다.
+    /// 2. 이 메시지의 다른 부분이 그 때문에 건너뛰어지지 않았다(반쪽 발송·순서 뒤바뀜 방지).
+    /// 3. 지금 메시지 앱이 대화 확인(부작용 없는 호출)에 응답한다. 메시지 앱은 Apple Event 를 받은 순서대로
+    ///    처리하므로, 앞서 보낸 보내기 명령이 전달됐다면 이 확인보다 먼저 실행됐다.
+    /// 4. `resendSettleDelay` 를 더 기다린 뒤에도 기준 rowid 뒤로 이 대화에 내 메시지 행이 하나도 없다 —
+    ///    메시지 앱은 보내기를 실행하면 전송 성패와 관계없이 chat.db 에 행을 남기므로, 본문 비교가 못 맞추는
+    ///    경우까지 포함해 "보내기가 실행되지 않았다"는 뜻이다. 행이 있으면 그것이 늦은 메아리일 수 있어
+    ///    다음 루프의 메아리 맞춤에 맡긴다.
+    func resendUnconfirmed(id: Int64, entry e: OutboxEntry, entries: [OutboxEntry]) async -> OutboxStatus? {
+        let key = Self.partKey(id, e.part)
+        guard let pending = unconfirmedSends.removeValue(forKey: key) else { return nil }
+        func decline(_ reason: String, note: String) -> OutboxStatus? {
+            logEvent(.info, "im_resend_skipped", ["tg_message_id": .int(id), "part": .int(Int64(e.part)), "reason": .string(reason)])
+            warnNotes[id] = WarnNote(certainlyNotSent: false, text: note)
+            return nil
+        }
+        if entries.contains(where: { $0.part != e.part && $0.status == .failed }) {
+            return decline("other_parts_skipped", note: "여러 부분으로 된 메시지라 자동으로 다시 보내지 않았습니다. 필요하면 iPhone 에서 확인 후 다시 보내 주세요.")
+        }
+        do {
+            guard try sender.chatExists(options.chatGuid) else {
+                unresponsiveStreak = 0
+                return decline("chat_not_found", note: "메시지 앱에서 대화를 찾지 못해 자동으로 다시 보내지 않았습니다.")
+            }
+            unresponsiveStreak = 0
+        } catch {
+            if let se = error as? SendError { noteResponsiveness(se) }
+            return decline("messages_unresponsive",
+                           note: "메시지 앱이 아직 응답하지 않아, 늦게라도 보내질 수 있어 자동으로 다시 보내지 않았습니다. iPhone 에서 확인 후 필요하면 다시 보내 주세요.")
+        }
+        await clock.sleep(seconds: options.resendSettleDelay)
+        guard let chat else { return nil }
+        let later = (try? chatDB.messages(after: pending.baselineRowID, chat: chat)) ?? []
+        if later.contains(where: { $0.isFromMe }) {
+            logEvent(.info, "im_resend_skipped", ["tg_message_id": .int(id), "part": .int(Int64(e.part)), "reason": .string("own_row_after_send")])
+            return .ambiguousTimeout  // 메아리 맞춤에 한 번 더 기회를 준다. 다음 판정에서는 다시 보내지 않는다.
+        }
+
+        log("유예 동안 확인되지 않고 메시지 앱 기록에도 없음 — 1회 다시 보냄 tg=\(id) part=\(e.part)")
+        logEvent(.info, "im_send_retry", ["tg_message_id": .int(id), "part": .int(Int64(e.part)), "kind": .string(pending.kind),
+                                          "attempt": .int(2), "reason": .string("unconfirmed_after_grace")])
+        let graceText = "\(Int(options.sendTimeoutGrace))초 동안 확인되지 않아 1번 다시 보냈지만"
+        switch await sendToMessages(kind: pending.kind, payload: pending.payload, tgMessageID: id, part: e.part, retryDelays: []) {
+        case .sent:
+            try? state.restartOutbox(tgMessageID: id, part: e.part, status: .sent, createdAt: clock.now, detail: "유예 뒤 1회 다시 보냄")
+            warnNotes[id] = WarnNote(certainlyNotSent: false, text: "\(graceText) 그것도 확인되지 않았습니다. 자동으로 더 보내지 않습니다. iPhone 에서 확인해 주세요.")
+            logEvent(.info, "im_send_ok", ["tg_message_id": .int(id), "part": .int(Int64(e.part)), "kind": .string(pending.kind), "attempts": .int(2)])
+            return .sent
+        case .unknown(let error, _):
+            try? state.restartOutbox(tgMessageID: id, part: e.part, status: .ambiguousTimeout, createdAt: clock.now, detail: "\(error)")
+            warnNotes[id] = WarnNote(certainlyNotSent: false, text: "\(graceText) 그것도 응답이 없었습니다. 자동으로 더 보내지 않습니다. iPhone 에서 확인해 주세요.")
+            return .ambiguousTimeout
+        case .notSent(let error, _):
+            return resendFailed(id: id, part: e.part, error: error, graceText: graceText)
+        case .failed(let error, _):
+            return resendFailed(id: id, part: e.part, error: error, graceText: graceText)
+        }
+    }
+
+    func resendFailed(id: Int64, part: Int, error: Error, graceText: String) -> OutboxStatus {
+        try? state.updateOutbox(tgMessageID: id, part: part, status: .failed, detail: "\(error)", clearKey: true)
+        warnNotes[id] = WarnNote(certainlyNotSent: false, text: "\(graceText) 그것도 실패했습니다. 자동으로 더 보내지 않습니다. iPhone 에서 확인해 주세요.")
+        return .failed
     }
 
     /// 보낸 첨부 사본은 1시간 뒤에 지운다. 메시지 앱이 chat.db 에 기록한 뒤에도 업로드 중일 수 있어 바로 지우지 않고,

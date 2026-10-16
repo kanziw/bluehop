@@ -4,6 +4,14 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+### Changed
+- Telegram → iMessage sends are retried when that is safe, and a retry that goes through no longer posts a ⚠️ warning. A send is now two osascript calls: a side-effect-free chat check (10 s limit), then the send. Failures are sorted by whether Messages could have run the send: (a) **certainly not sent** — anything failing in the chat check, including a time-out (a real case: Messages' Apple Event queue was stuck behind another process's permission prompt and the old single script died while looking up the chat), and send errors that happen before the send runs (-1728, -1743/-1744, -1708, -1700, -2740/-2741/-2753, -600); these are retried right away after 2 s and 5 s. (b) **unknown** — the send call itself timed out; this keeps the existing grace period, and if nothing matched by its end, the message is resent once only when Messages answers a chat check again and, after 3 more seconds, no message from you at all has appeared in that chat since the send (Messages records a row for every send it runs, so this also covers echoes whose text did not match). After a restart, for multi-part messages with skipped parts, or when Messages still does not answer, nothing is resent. (c) any other clear error is reported without a retry.
+- Warnings now say what was tried ("3번 시도했지만 …", "… 1번 다시 보냈지만 …") and say plainly when the message certainly was not sent. When Messages has not answered twice or more in a row, the warning asks to quit and reopen Messages.
+- osascript error text (which contains the chat id) is no longer copied into warnings and logs; only the AppleScript error number is kept.
+
+### Added
+- Structured events `im_send_retry` (`attempt`, `reason`, `delay_seconds`) and `im_resend_skipped` (`reason`); `im_send_ok`/`im_send_failed` carry `attempts`, and `im_send_failed` says whether the message `certainly_not_sent`.
+
 ## [0.5.4] - 2026-10-15
 
 ### Fixed

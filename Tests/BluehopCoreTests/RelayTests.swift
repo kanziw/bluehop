@@ -826,7 +826,8 @@ final class AmbiguousSendTimeoutTests: XCTestCase {
         XCTAssertTrue(MockTelegram.sentMethods.isEmpty)  // 경고도, 중복 게시도 없음
     }
 
-    /// 유예가 끝날 때까지 메아리가 안 오면 평소처럼 "확인하지 못했다"고 알린다 — 다시 보내지 않는다.
+    /// 유예가 끝날 때까지 메아리가 안 오고 메시지 앱도 여전히 응답하지 않으면 "확인하지 못했다"고 알린다 —
+    /// 늦게라도 보내질 수 있으므로 다시 보내지 않고, 무응답이 이어졌으니 메시지 앱을 다시 켜 달라고 안내한다.
     func testAmbiguousTimeoutFailsAfterGraceWithoutEcho() async throws {
         let h = try Harness.make()
         try await h.relay.start()
@@ -835,6 +836,7 @@ final class AmbiguousSendTimeoutTests: XCTestCase {
         await h.relay.tick()
         XCTAssertTrue(MockTelegram.sentMethods.isEmpty)  // 유예 중
 
+        h.sender.existsFailures = [FakeSender.notSentUnresponsive]  // 유예 뒤에도 메시지 앱이 응답하지 않는다
         h.clock.now += h.relay.options.sendTimeoutGrace + 1
         await h.relay.tick()
 
@@ -843,6 +845,7 @@ final class AmbiguousSendTimeoutTests: XCTestCase {
         XCTAssertTrue(warn.contains("자동으로 다시 보내지 않았습니다"))
         XCTAssertEqual(try h.state.outbox(tgMessageID: 42).map(\.status), [.failed])
         XCTAssertEqual(h.sender.sent.count, 0)  // 재전송 없음
+        XCTAssertTrue(warn.contains("메시지 앱을 종료했다가 다시 켜 주세요"))
     }
 
     /// 경고를 이미 보낸 뒤에는 같은 글이 와도 그 판정을 되돌리지 않는다(거짓으로 "사실 성공했다"고
@@ -853,6 +856,7 @@ final class AmbiguousSendTimeoutTests: XCTestCase {
         h.sender.failNextWithTimeout = true
         MockTelegram.enqueue([Harness.textUpdate(1, messageID: 42, text: "경고 나간 뒤 도착")])
         await h.relay.tick()
+        h.sender.existsFailures = [FakeSender.notSentUnresponsive]
         h.clock.now += h.relay.options.sendTimeoutGrace + 1
         await h.relay.tick()  // 경고 발송, 메아리 맞춤 키 비움
         XCTAssertEqual(try h.state.outbox(tgMessageID: 42).map(\.status), [.failed])

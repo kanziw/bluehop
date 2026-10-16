@@ -288,9 +288,27 @@ final class FakeSender: MessagesSender {
     /// true 면 메아리를 실제 메시지 앱처럼 `text` 를 비우고 `attributedBody` 에만 적는다.
     var echoAsAttributedBody = false
 
-    func sendText(_ text: String, chatGuid: String) throws {
+    /// 보내기 시도마다 앞에서부터 하나씩 꺼내 던진다(빈 뒤로는 성공). 재시도 흐름 검사용.
+    var sendFailures: [SendError] = []
+    /// 보내기 시도 횟수(실패 포함).
+    var sendAttempts = 0
+    /// `chatExists` 호출마다 앞에서부터 하나씩 꺼내 던진다(빈 뒤로는 `existsResult`).
+    var existsFailures: [SendError] = []
+    var existsResult = true
+    var existsCalls = 0
+
+    static let notSentUnresponsive = SendError("가짜 대화 확인 시간 제한", kind: .notSent, messagesUnresponsive: true, reason: "messages_unresponsive")
+    static let sendTimeout = SendError("가짜 보내기 시간 제한", kind: .unknown, messagesUnresponsive: true, reason: "send_timeout")
+
+    private func nextFailure() throws {
+        sendAttempts += 1
+        if !sendFailures.isEmpty { throw sendFailures.removeFirst() }
         if failNextWithTimeout { failNextWithTimeout = false; throw SendError("가짜 응답 없음", isAmbiguousTimeout: true) }
         if failNext { failNext = false; throw SendError("가짜 실패") }
+    }
+
+    func sendText(_ text: String, chatGuid: String) throws {
+        try nextFailure()
         sent.append(("text", text, chatGuid))
         let written = echoTextTransform?(text) ?? text
         if echoAsAttributedBody {
@@ -305,8 +323,7 @@ final class FakeSender: MessagesSender {
     var sentFileModes: [Int] = []
 
     func sendFile(_ path: String, chatGuid: String) throws {
-        if failNextWithTimeout { failNextWithTimeout = false; throw SendError("가짜 응답 없음", isAmbiguousTimeout: true) }
-        if failNext { failNext = false; throw SendError("가짜 실패") }
+        try nextFailure()
         sent.append(("file", path, chatGuid))
         let dirMode = (try? FileManager.default.attributesOfItem(atPath: (path as NSString).deletingLastPathComponent)[.posixPermissions] as? Int) ?? -1
         sentFileModes.append(dirMode)
@@ -315,7 +332,11 @@ final class FakeSender: MessagesSender {
         let uti = ["jpg": "public.jpeg", "m4a": "com.apple.m4a-audio", "pdf": "com.adobe.pdf"][ext]
         try echoInto?.insertObservedOwnAttachment(chat: echoChat, sentPath: path, mime: mime, uti: uti, error: fileEchoError ?? echoError)
     }
-    func chatExists(_ chatGuid: String) throws -> Bool { true }
+    func chatExists(_ chatGuid: String) throws -> Bool {
+        existsCalls += 1
+        if !existsFailures.isEmpty { throw existsFailures.removeFirst() }
+        return existsResult
+    }
 }
 
 final class FakeConverter: MediaConverter {

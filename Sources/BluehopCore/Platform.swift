@@ -41,25 +41,57 @@ public enum ProcessRunner {
 
 // MARK: - 메시지 앱으로 보내기
 
+/// 보내기 실패를 "메시지 앱이 그 요청을 실행했을 수 있는가"로 나눈 것. 재시도 판단의 근거다.
+public enum SendFailureKind: Equatable {
+    /// 보내기 명령이 메시지 앱에 닿기 전에 실패했다 — 보내지지 않은 것이 확실하므로 다시 보내도 중복이 생기지 않는다.
+    case notSent
+    /// 보내기 명령을 넘긴 뒤 응답을 못 받았다(osascript 시간 제한) — 메시지 앱이 이미 실행했는지 알 수 없다.
+    case unknown
+    /// 메시지 앱·AppleScript 가 또렷한 오류를 돌려줬지만 보내기 전 단계의 오류로 분류할 근거가 없다.
+    case failed
+}
+
 public struct SendError: Error, CustomStringConvertible {
     public var description: String
-    /// true 면 osascript 가 시간 제한으로 강제 종료된 경우 — 메시지 앱에 전달됐는지 알 수 없다
-    /// (Apple Event 가 이미 전달된 뒤 kill 됐을 수 있음). 다른 실패(0 이 아닌 종료 코드에 오류가 또렷함)는 false.
-    public var isAmbiguousTimeout: Bool
-    public init(_ d: String, isAmbiguousTimeout: Bool = false) {
+    public var kind: SendFailureKind
+    /// 메시지 앱이 응답하지 않아 생긴 실패인가(시간 제한). 반복되면 메시지 앱을 다시 켜 달라고 안내한다.
+    public var messagesUnresponsive: Bool
+    /// 사건 로그용 짧은 이유 코드(본문·식별자 없음). 예: `messages_unresponsive`, `chat_not_found`, `applescript_-1743`.
+    public var reason: String
+
+    public init(_ d: String, kind: SendFailureKind = .failed, messagesUnresponsive: Bool = false, reason: String = "error") {
         description = d
-        self.isAmbiguousTimeout = isAmbiguousTimeout
+        self.kind = kind
+        self.messagesUnresponsive = messagesUnresponsive
+        self.reason = reason
     }
+
+    /// true 면 osascript 시간 제한(전달 여부 모름, `kind == .unknown`), false 면 또렷한 실패(`.failed`).
+    public init(_ d: String, isAmbiguousTimeout: Bool) {
+        self.init(d, kind: isAmbiguousTimeout ? .unknown : .failed, messagesUnresponsive: isAmbiguousTimeout,
+                  reason: isAmbiguousTimeout ? "send_timeout" : "error")
+    }
+
+    /// 보내기 osascript 가 시간 제한으로 강제 종료된 경우 — 메시지 앱에 전달됐는지 알 수 없다.
+    public var isAmbiguousTimeout: Bool { kind == .unknown }
+    /// 보내지지 않은 것이 확실한 실패.
+    public var isCertainlyNotSent: Bool { kind == .notSent }
 }
 
 public protocol MessagesSender: AnyObject {
     func sendText(_ text: String, chatGuid: String) throws
     func sendFile(_ path: String, chatGuid: String) throws
-    /// 보내지 않고 대화가 메시지 앱에 있는지만 본다(doctor 용).
+    /// 보내지 않고 대화가 메시지 앱에 있는지만 본다(doctor·유예 뒤 응답 확인용). 부작용이 없다.
     func chatExists(_ chatGuid: String) throws -> Bool
 }
 
 /// AppleScript(osascript) 발신기. 본문·대상은 argv 로만 넘기고 스크립트 문자열에 끼워 넣지 않는다.
+///
+/// 보내기 한 번은 osascript 두 번이다. 먼저 `exists`(대화 확인, 부작용 없음)를 짧은 시간 제한으로 부르고,
+/// 성공했을 때만 보내기를 부른다. 메시지 앱의 Apple Event 통로가 막혀 있으면 대개 첫 호출에서 걸리므로,
+/// 그 실패는 "보내지 않았음이 확실"(`SendFailureKind.notSent`)로 분류돼 바로 다시 시도할 수 있다.
+/// 보내기 호출 자체가 시간 제한에 걸린 경우만 "알 수 없음"(`unknown`)이다. 보내기 스크립트는 그대로 둔다 —
+/// 대화 확인이 같은 호출 안에 있으면, 시간 제한에 걸렸을 때 어느 단계였는지 알 수 없다.
 public final class AppleScriptSender: MessagesSender {
     /// 고정 스크립트. argv: 1=mode(text|file|exists) 2=chat guid 3=본문 또는 파일 경로
     public static let script = """
@@ -86,30 +118,84 @@ public final class AppleScriptSender: MessagesSender {
     end run
     """
 
-    public init() {}
+    /// osascript 한 번을 실행한다(인자: argv, 시간 제한). 테스트는 가짜를 넣어 메시지 앱을 건드리지 않는다.
+    public typealias Runner = (_ args: [String], _ timeout: TimeInterval) throws -> ProcessResult
 
-    /// osascript 한 번을 기다리는 최대 시간. 메시지 앱이 응답할 때까지(모달 대화상자가 떠 있거나
-    /// 시스템이 바쁠 때 포함) 막힐 수 있어 넉넉히 둔다 — 짧추면 늦은 정상 응답까지 시간 제한으로 끊긴다.
-    public static let sendTimeout: TimeInterval = 30
+    let runner: Runner
 
-    private func run(_ mode: String, _ chatGuid: String, _ payload: String) throws -> String {
-        let r = try ProcessRunner.run("/usr/bin/osascript", ["-e", Self.script, mode, chatGuid, payload], timeout: Self.sendTimeout)
-        guard r.status == 0 else {
-            // ProcessRunner 는 시간 제한에 걸리면 status=-9, stderr="timeout" 을 돌려준다(실제 종료 코드가
-            // 아니라 우리가 강제로 만든 값) — osascript 를 죽였을 뿐 메시지 앱이 이미 받은 요청을 끝냈는지는
-            // 모른다. 그 밖의 0 이 아닌 종료는 osascript·AppleScript 가 또렷하게 돌려준 실패다.
-            if r.status == -9, r.stderr == "timeout" {
-                throw SendError("osascript 응답 없음(\(Int(Self.sendTimeout))초 제한) — 메시지 앱에 전달됐는지 확인되지 않음", isAmbiguousTimeout: true)
-            }
-            // stderr 에는 본문이 섞이지 않는다(스크립트 오류 번호·설명). 길이만 제한해 남긴다.
-            throw SendError("osascript 실패(\(r.status)): \(r.stderr.prefix(200).trimmingCharacters(in: .whitespacesAndNewlines))")
-        }
-        return r.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+    public init(runner: Runner? = nil) {
+        self.runner = runner ?? { args, timeout in try ProcessRunner.run("/usr/bin/osascript", args, timeout: timeout) }
     }
 
-    public func sendText(_ text: String, chatGuid: String) throws { _ = try run("text", chatGuid, text) }
-    public func sendFile(_ path: String, chatGuid: String) throws { _ = try run("file", chatGuid, path) }
-    public func chatExists(_ chatGuid: String) throws -> Bool { try run("exists", chatGuid, "") == "true" }
+    /// 보내기 osascript 를 기다리는 최대 시간. 메시지 앱이 응답할 때까지(모달 대화상자가 떠 있거나
+    /// 시스템이 바쁠 때 포함) 막힐 수 있어 넉넉히 둔다 — 짧추면 늦은 정상 응답까지 시간 제한으로 끊긴다.
+    public static let sendTimeout: TimeInterval = 30
+    /// 대화 확인(`exists`) osascript 의 시간 제한. 부작용이 없는 호출이라 시간 제한에 걸려도 보내지 않은 것이
+    /// 확실하다 — 길게 기다릴 이유가 없어 짧게 둔다(막힌 메시지 앱에서 재시도까지 걸리는 시간을 줄인다).
+    public static let precheckTimeout: TimeInterval = 10
+
+    /// 보내기 단계 osascript 가 이 AppleScript 오류 번호로 끝나면, 보내기 명령이 메시지 앱에서 실행되기 전에 실패한 것이다.
+    /// - -1728: 대화를 찾지 못함(`set c to chat id …` 단계, 보내기 전)
+    /// - -1743 / -1744: 자동화(Apple Event) 권한 거부 — 이벤트 자체가 거절됨
+    /// - -1708: 메시지 앱이 그 명령을 모름 / -1700: 값 변환 실패(`POSIX file` 등, `tell` 전)
+    /// - -2740 / -2741 / -2753: 스크립트 구문·컴파일 오류(아무 이벤트도 보내기 전)
+    /// - -600: 메시지 앱 프로세스를 찾지 못함(이벤트가 전달되지 않음)
+    /// 여기에 없는 번호(예: -609 연결 끊김, -1712 AppleScript 자체 시간 제한, -10000 처리기 실패)는
+    /// 보내기 도중에 날 수 있어 "보내지 않음"으로 단정하지 않는다.
+    public static let notSentErrorCodes: Set<Int> = [-1728, -1743, -1744, -1708, -1700, -2740, -2741, -2753, -600]
+
+    /// osascript stderr 끝의 `(-1728)` 같은 AppleScript 오류 번호. stderr 의 나머지(대화 id 가 들어 있을 수 있음)는
+    /// 로그·경고에 쓰지 않는다.
+    public static func appleScriptErrorCode(_ stderr: String) -> Int? {
+        let t = stderr.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard t.hasSuffix(")"), let open = t.lastIndex(of: "(") else { return nil }
+        return Int(t[t.index(after: open)..<t.index(before: t.endIndex)])
+    }
+
+    /// ProcessRunner 는 시간 제한에 걸리면 status=-9, stderr="timeout" 을 돌려준다(실제 종료 코드가 아니라 우리가 만든 값).
+    static func isTimeout(_ r: ProcessResult) -> Bool { r.status == -9 && r.stderr == "timeout" }
+
+    /// 대화 확인 한 번. 보내기 명령이 없으므로 어떤 실패든 `notSent` 로 던진다.
+    private func exists(_ chatGuid: String) throws -> Bool {
+        let r = try runner(["-e", Self.script, "exists", chatGuid, ""], Self.precheckTimeout)
+        if Self.isTimeout(r) {
+            throw SendError("메시지 앱이 응답하지 않음(대화 확인 \(Int(Self.precheckTimeout))초 제한)",
+                            kind: .notSent, messagesUnresponsive: true, reason: "messages_unresponsive")
+        }
+        guard r.status == 0 else {
+            let code = Self.appleScriptErrorCode(r.stderr)
+            throw SendError("대화 확인 실패(AppleScript 오류 \(code.map(String.init) ?? "번호 없음"))",
+                            kind: .notSent, reason: code.map { "applescript_\($0)" } ?? "precheck_exit_\(r.status)")
+        }
+        return r.stdout.trimmingCharacters(in: .whitespacesAndNewlines) == "true"
+    }
+
+    private func send(_ mode: String, _ chatGuid: String, _ payload: String) throws {
+        // 1) 보내기 전 단계(부작용 없음). 여기서 실패하면 보내기 명령은 메시지 앱에 가지 않았다.
+        guard try exists(chatGuid) else {
+            throw SendError("메시지 앱에서 대화를 찾지 못함", kind: .notSent, reason: "chat_not_found")
+        }
+        // 2) 보내기.
+        let r = try runner(["-e", Self.script, mode, chatGuid, payload], Self.sendTimeout)
+        if Self.isTimeout(r) {
+            // osascript 를 죽였을 뿐 메시지 앱이 이미 받은 요청을 끝냈는지는 모른다.
+            throw SendError("osascript 응답 없음(\(Int(Self.sendTimeout))초 제한) — 메시지 앱에 전달됐는지 확인되지 않음",
+                            kind: .unknown, messagesUnresponsive: true, reason: "send_timeout")
+        }
+        guard r.status == 0 else {
+            let code = Self.appleScriptErrorCode(r.stderr)
+            let label = code.map(String.init) ?? "번호 없음"
+            if let code, Self.notSentErrorCodes.contains(code) {
+                throw SendError("메시지 앱이 보내기 전에 거절(AppleScript 오류 \(label))", kind: .notSent, reason: "applescript_\(code)")
+            }
+            throw SendError("osascript 실패(종료 \(r.status), AppleScript 오류 \(label))", kind: .failed,
+                            reason: code.map { "applescript_\($0)" } ?? "exit_\(r.status)")
+        }
+    }
+
+    public func sendText(_ text: String, chatGuid: String) throws { try send("text", chatGuid, text) }
+    public func sendFile(_ path: String, chatGuid: String) throws { try send("file", chatGuid, path) }
+    public func chatExists(_ chatGuid: String) throws -> Bool { try exists(chatGuid) }
 }
 
 // MARK: - 미디어 변환 (macOS 기본 도구만: sips, afconvert)

@@ -264,6 +264,15 @@ public final class StateStore {
                   .int(clearKey ? 1 : 0), m, .int(tgMessageID), .int(Int64(part))])
     }
 
+    /// 다시 보낸 부분의 상태와 기준 시각을 새로 잡는다(메아리 대기·유예를 다시 보낸 때부터 센다). 매칭 키는 그대로 둔다.
+    public func restartOutbox(tgMessageID: Int64, part: Int, status: OutboxStatus, createdAt: Double, detail: String?) throws {
+        try db.run("""
+            UPDATE outbox SET status = ?, created_at = ?, detail = COALESCE(?, detail)
+            WHERE mapping_id = ? AND tg_message_id = ? AND part = ?
+            """, [.text(status.rawValue), .int(Int64(createdAt)), detail.map { .text($0) } ?? .null,
+                  m, .int(tgMessageID), .int(Int64(part))])
+    }
+
     public func outbox(tgMessageID: Int64) throws -> [OutboxEntry] {
         try db.query("""
             SELECT tg_message_id, part, kind, match_key, status, created_at, detail FROM outbox
