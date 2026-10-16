@@ -239,7 +239,7 @@ footer p { margin: 6px 0; }
     <li><h3>One binary, built on your Mac</h3><p>You build and sign it locally with Xcode; a LaunchAgent runs it. Only that binary gets Full Disk Access and Automation permission; your terminal never does.</p></li>
     <li><h3>Reads your chosen chats</h3><p>New rows of the linked 1:1 chats are read from <code>chat.db</code>, opened read-only. Each chat has its own worker.</p></li>
     <li><h3>Posts to its bot</h3><p>Each chat's messages arrive in its own private bot chat. Only your Telegram user id is accepted back.</p></li>
-    <li><h3>Sends and checks</h3><p>Replies go out through a fixed AppleScript, then each send is confirmed in <code>chat.db</code>. Nothing is resent automatically.</p></li>
+    <li><h3>Sends and checks</h3><p>Replies go out through a fixed AppleScript, then each send is confirmed in <code>chat.db</code>. A send that certainly never reached Messages is retried right away; one whose outcome is unknown is resent only when there is evidence it never ran.</p></li>
   </ol>
 <pre class="flow" aria-label="Data flow diagram">iMessage contact ── Messages.app on your Mac ──┐
                                                │ chat.db (read-only)
