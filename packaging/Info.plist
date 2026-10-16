@@ -7,7 +7,7 @@
     <key>CFBundleName</key>
     <string>bluehop</string>
     <key>CFBundleShortVersionString</key>
-    <string>0.5.4</string>
+    <string>0.5.5</string>
     <key>NSAppleEventsUsageDescription</key>
     <string>정해 둔 iMessage 대화 하나로 텔레그램에서 쓴 글과 첨부를 보내기 위해 메시지 앱을 제어합니다.</string>
 </dict>
