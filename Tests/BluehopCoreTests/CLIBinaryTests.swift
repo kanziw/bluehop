@@ -95,7 +95,7 @@ final class CLIBinaryTests: XCTestCase {
     func testVersionJSON() throws {
         let r = try run(["version", "--json"])
         XCTAssertEqual(r.status, 0)
-        XCTAssertEqual(try json(r)["version"] as? String, "0.5.5")
+        XCTAssertEqual(try json(r)["version"] as? String, "0.5.6")
     }
 
     func testMappingListPauseResumeRemoveOnTempConfig() throws {

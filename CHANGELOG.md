@@ -4,6 +4,11 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+## [0.5.6] - 2026-10-18
+
+### Added
+- `bluehop notify [--mapping ID|--all] (--text TEXT|--text-stdin) [--json]`: sends one Telegram message to a mapping's chat (or every mapping) with that mapping's own token, read from the Keychain or token file the same way every other command reads it. A trusted caller of the installed binary (for example a `launchd`-run watchdog) can now notify over Telegram without the Keychain's "always allow" prompt, which only the installed binary itself is trusted to skip. Touches nothing else: no iMessage, no state database, no event log. A mapping whose token cannot be read, or whose `sendMessage` fails, reports a failing result (`code` from the usual table) without stopping the other mappings. `--json` gives `{"ok", "results": [{"mapping", "ok", "messageId", "code", "detail"}]}`.
+
 ## [0.5.5] - 2026-10-16
 
 ### Changed
@@ -122,7 +127,8 @@ First public release of **bluehop**. Earlier versions were developed privately a
 ### Added
 - First version: one iMessage 1:1 chat ↔ one Telegram chat, read-only chat.db reader, Telegram client, CLI (`run`, `doctor`, `telegram-ids`, `list-chats`, `resume`), signed build, LaunchAgent install scripts.
 
-[Unreleased]: https://github.com/kanziw/bluehop/compare/v0.5.5...HEAD
+[Unreleased]: https://github.com/kanziw/bluehop/compare/v0.5.6...HEAD
+[0.5.6]: https://github.com/kanziw/bluehop/compare/v0.5.5...v0.5.6
 [0.5.5]: https://github.com/kanziw/bluehop/compare/v0.5.4...v0.5.5
 [0.5.4]: https://github.com/kanziw/bluehop/compare/v0.5.3...v0.5.4
 [0.5.3]: https://github.com/kanziw/bluehop/compare/v0.5.2...v0.5.3
