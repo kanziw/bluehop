@@ -476,6 +476,58 @@ func cmdStatus(_ ctx: Context) async throws -> ExitCode {
     return .ok
 }
 
+// MARK: - notify
+
+/// `--mapping ID` 또는 `--all` 로 보낼 매핑을 고른다. 둘 다 없으면 매핑이 하나뿐일 때 그것(다른 명령의 관례와 같음).
+func selectNotifyTargets(_ cfg: BluehopConfig, mappingID: String?, all: Bool) throws -> [MappingConfig] {
+    if all {
+        guard mappingID == nil else { throw CLIError(.usage, "--mapping 과 --all 은 함께 쓸 수 없습니다") }
+        guard !cfg.mappings.isEmpty else { throw CLIError(.notFound, "매핑이 없습니다 (bluehop mapping add)") }
+        return cfg.mappings
+    }
+    if let mappingID {
+        guard let m = cfg.mapping(mappingID) else { throw CLIError(.notFound, "매핑 '\(mappingID)' 가 없습니다 (bluehop mapping list)") }
+        return [m]
+    }
+    if cfg.mappings.count == 1 { return cfg.mappings }
+    if cfg.mappings.isEmpty { throw CLIError(.notFound, "매핑이 없습니다 (bluehop mapping add)") }
+    throw CLIError(.usage, "--mapping 또는 --all 이 필요합니다 (매핑 \(cfg.mappings.count)개: \(cfg.mappings.map(\.id).joined(separator: ", ")))")
+}
+
+/// 보낼 글을 `--text` 또는 `--text-stdin` 에서 읽는다. 표준입력은 끝의 줄바꿈 하나만 뗀다(여러 줄 글 허용).
+func readNotifyText(_ ctx: Context) throws -> String {
+    let a = ctx.args
+    if a.has("--text") && a.has("--text-stdin") { throw CLIError(.usage, "--text 와 --text-stdin 은 함께 쓸 수 없습니다") }
+    if let t = a.value("--text") {
+        guard !t.isEmpty else { throw CLIError(.usage, "--text 가 비었습니다") }
+        return t
+    }
+    guard a.has("--text-stdin") else { throw CLIError(.usage, "--text 또는 --text-stdin 이 필요합니다") }
+    var text = String(decoding: FileHandle.standardInput.readDataToEndOfFile(), as: UTF8.self)
+    if text.hasSuffix("\n") { text.removeLast() }
+    guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { throw CLIError(.usage, "표준입력에서 글을 읽지 못했습니다") }
+    return text
+}
+
+/// 매핑(들)에 텔레그램 글 하나를 보낸다. 신뢰된 바이너리가 직접 보내므로 Keychain 항목의 "항상 허용" 승인이 필요 없다
+/// (이 바이너리 자체가 Keychain 항목이 믿는 프로그램). iMessage·상태 DB·사건 로그는 건드리지 않는다.
+func cmdNotify(_ ctx: Context) async throws -> ExitCode {
+    let cfg = try loadConfig(ctx).config
+    let targets = try selectNotifyTargets(cfg, mappingID: ctx.args.value("--mapping"), all: ctx.args.has("--all"))
+    let text = try readNotifyText(ctx)
+    let results = await Notifier.send(targets, text: text)
+    let allOK = results.allSatisfy(\.ok)
+    if ctx.json {
+        say(JSONOut.render(["ok": allOK, "results": results.map(\.json)] as [String: Any]))
+    } else {
+        for r in results {
+            say(r.ok ? "✔ \(r.mappingID): 보냈습니다 (message_id \(r.messageID.map(String.init) ?? "?"))"
+                     : "✗ \(r.mappingID): 실패 (\(r.code))")
+        }
+    }
+    return allOK ? .ok : .failure
+}
+
 // MARK: - telegram-ids · resume · 진단
 
 func cmdTelegramIDs(_ ctx: Context) async throws -> ExitCode {

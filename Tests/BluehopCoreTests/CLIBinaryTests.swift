@@ -30,7 +30,7 @@ final class CLIBinaryTests: XCTestCase {
     /// 에이전트가 부를 수 있는 모든 명령(별칭 포함). 새 명령을 넣으면 여기에도 넣는다.
     static let allCommands = [["run"], ["chats"], ["list-chats"], ["mapping", "list"], ["mapping", "add"], ["mapping", "remove"],
                               ["mapping", "pause"], ["mapping", "resume"], ["mapping", "test"], ["doctor"], ["status"],
-                              ["telegram-ids"], ["resume"], ["selfcheck-attributed"], ["diag-echo"], ["diag-send-file"],
+                              ["telegram-ids"], ["notify"], ["resume"], ["selfcheck-attributed"], ["diag-echo"], ["diag-send-file"],
                               ["diag-audio"], ["version"]]
 
     func entries(_ dir: URL) -> [String] {
@@ -158,6 +158,40 @@ final class CLIBinaryTests: XCTestCase {
         XCTAssertEqual(bad.status, 1)
         XCTAssertFalse(bad.stdout.contains("not-a-token"))
         XCTAssertFalse(bad.stderr.contains("not-a-token"))
+    }
+
+    /// `notify` 의 인자 검사(매핑 선택·글 출처)는 네트워크·Keychain 에 닿기 전에 끝난다 — 모두 거짓 토큰 설정으로 돈다.
+    func testNotifyArgumentValidationHasNoNetworkSideEffects() throws {
+        let cfg = fileTokenConfig()  // 매핑 하나: family
+        XCTAssertEqual(try run(["notify", "--config", makeTempDir().appendingPathComponent("config.json").path,
+                                "--all", "--text", "hi"]).status, 1, "설정 없음")
+        XCTAssertEqual(try run(["notify", "--mapping", "family", "--all", "--text", "hi", "--config", cfg]).status, 2,
+                      "--mapping 과 --all 동시 지정")
+        let noText = try run(["notify", "--all", "--config", cfg])
+        XCTAssertEqual(noText.status, 2, noText.stderr)
+        XCTAssertTrue(noText.stderr.contains("--text"), noText.stderr)
+        XCTAssertEqual(try run(["notify", "--all", "--text", "hi", "--text-stdin", "--config", cfg]).status, 2, "--text 와 --text-stdin 동시 지정")
+        let notFound = try run(["notify", "--mapping", "nope", "--text", "hi", "--json", "--config", cfg])
+        XCTAssertEqual(notFound.status, 4, notFound.stderr)
+        XCTAssertEqual((try json(notFound)["error"] as? [String: Any])?["kind"] as? String, "not_found")
+
+        let emptyCfg = writePrivate("""
+            {"version":2,"mappings":[]}
+            """, in: makeTempDir())
+        let noMappings = try run(["notify", "--all", "--text", "hi", "--json", "--config", emptyCfg])
+        XCTAssertEqual(noMappings.status, 4, noMappings.stderr)
+
+        // 설정 하나뿐이면 --mapping·--all 없이도 그 매핑으로 고른다(다른 명령과 같은 관례) — 거짓 토큰이라 전송 전에 실패.
+        let autoSelected = try run(["notify", "--text", "hi", "--json", "--config", cfg])
+        XCTAssertEqual(autoSelected.status, 1, autoSelected.stderr)
+        let r = try json(autoSelected)
+        let results = try XCTUnwrap(r["results"] as? [[String: Any]])
+        XCTAssertEqual(results.map { $0["mapping"] as? String }, ["family"])
+        XCTAssertEqual(results[0]["ok"] as? Bool, false)
+        XCTAssertEqual(results[0]["code"] as? String, "TOKEN_FORMAT")
+        XCTAssertTrue(results[0]["messageId"] is NSNull)
+
+        XCTAssertEqual(entries(home), [], "홈 폴더에 생긴 파일(Keychain·네트워크에 닿지 않아야 한다)")
     }
 
     /// 토큰 파일(형식이 틀림)을 쓰는 매핑 하나: Keychain·네트워크 없이 doctor 가 실패 코드를 낸다.

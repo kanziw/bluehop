@@ -96,6 +96,7 @@ Every command has `--help`; read commands take `--json`; unknown flags are error
 | `bluehop status [--json] [--lang en]` | Per mapping: last Telegram poll, last error, safety halt; whether the LaunchAgent runs |
 | `bluehop resume [--mapping ID] [--skip-backlog]` | Clear a safety halt |
 | `bluehop telegram-ids [--mapping ID \| --token-stdin]` | Chat and user ids of recent senders to a bot |
+| `bluehop notify [--mapping ID \| --all] (--text TEXT \| --text-stdin) [--json]` | Send one Telegram message to a mapping's chat (or all mappings) with that mapping's own token. Does not touch iMessage |
 
 Exit codes: `0` ok, `1` failure (a check failed, network, Keychain), `2` usage error, `3` conflict (same chat, same bot or same id), `4` not found, `5` timed out waiting for a Telegram message, `130` cancelled.
 

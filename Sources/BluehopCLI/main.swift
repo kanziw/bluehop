@@ -104,6 +104,21 @@ let commands: [String: Command] = [
                                               flags: [mappingFlag, FlagSpec("--token-stdin", "봇 토큰을 표준입력 한 줄로 받는다"),
                                                       FlagSpec("--token-file", value: "PATH", "봇 토큰 파일(0600)"), jsonFlag, configFlag]),
                             run: cmdTelegramIDs),
+    "notify": Command(spec: CommandSpec(
+        "notify", "매핑(들)의 텔레그램 방에 글 하나를 보낸다. iMessage·상태 DB·사건 로그는 건드리지 않는다.",
+        flags: [mappingFlag, FlagSpec("--all", "설정된 모든 매핑에 보낸다(enabled 여부와 상관없이)"),
+                FlagSpec("--text", value: "TEXT", "보낼 글"),
+                FlagSpec("--text-stdin", "글을 표준입력에서 읽는다(에이전트용, 여러 줄 가능)"),
+                jsonFlag, configFlag],
+        details: """
+            --mapping ID 또는 --all 중 하나(매핑이 하나뿐이면 둘 다 생략 가능). --text 또는 --text-stdin 중 하나가 필요하다.
+            토큰은 Keychain/토큰 파일에서 읽어 바로 쓰고 출력하지 않는다. 매핑 하나가 실패해도 나머지는 계속 보낸다(부분 성공).
+            --json: {"ok", "results": [{"mapping", "ok", "messageId", "code", "detail"}]}, code 는 doctor 와 같은 코드표.
+            """,
+        examples: [
+            "bluehop notify --all --text-stdin --json <<< '점검 필요'",
+            "bluehop notify --mapping family --text '테스트 알림'",
+        ]), run: cmdNotify),
     "resume": Command(spec: CommandSpec("resume", "안전 정지를 푼다. 실행 중인 bluehop 은 다음 루프부터 반영한다.",
                                         flags: [mappingFlag, FlagSpec("--skip-backlog", "밀린 iMessage 를 건너뛴다(chat.db 권한 필요)"), configFlag]),
                       run: cmdResume),
@@ -140,7 +155,7 @@ let rawArgs = Array(CommandLine.arguments.dropFirst())
 
 func topHelp() -> String {
     let order = ["run", "chats", "mapping list", "mapping add", "mapping remove", "mapping pause", "mapping resume", "mapping test",
-                 "doctor", "status", "telegram-ids", "resume", "selfcheck-attributed", "diag-echo", "diag-send-file", "diag-audio", "version"]
+                 "doctor", "status", "telegram-ids", "notify", "resume", "selfcheck-attributed", "diag-echo", "diag-send-file", "diag-audio", "version"]
     var s = "bluehop \(version) — iMessage 1:1 대화 ↔ 텔레그램 봇 방 중계 (매핑마다 봇 하나)\n\n사용법: bluehop <명령> [옵션]   명령마다 --help\n\n명령:\n"
     for name in order {
         guard let c = commands[name] else { continue }
